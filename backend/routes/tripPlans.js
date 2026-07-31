@@ -120,10 +120,58 @@ router.post('/recommendations', async (req, res) => {
         const recommendations = await TripPlan.find({ _id: { $in: recommendedIds } });
         res.json(recommendations);
     } catch (err) {
-        console.error(err);
+        console.error('[AI Recommendation Error]:', err.message || 'Failed to fetch AI recommendations');
         // Fallback to popular
         const popular = await TripPlan.find().sort({ popularityScore: -1 }).limit(4);
         res.json(popular);
+    }
+});
+
+// AI Compare Packages
+router.post('/compare-ai', async (req, res) => {
+    try {
+        const { packageIds } = req.body;
+        if (!packageIds || packageIds.length < 2) {
+            return res.status(400).json({ msg: 'Need at least 2 packages to compare.' });
+        }
+
+        const tripsToCompare = await TripPlan.find({ _id: { $in: packageIds } });
+
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+        const prompt = `
+        You are an expert travel comparison engine.
+        Compare these ${tripsToCompare.length} travel packages:
+        ${JSON.stringify(tripsToCompare.map(t => ({ id: t._id, name: t.destination, price: t.price, duration: t.duration, highlights: t.highlights, activities: t.activities })))}
+        
+        Evaluate them and determine the WINNING package ID for each of the following categories:
+        1. "bestValue": Best Value for Money
+        2. "bestFamily": Best for Families
+        3. "bestCouple": Best for Couples
+        4. "bestAdventure": Best Adventure Package
+        5. "bestLuxury": Best Luxury Package
+        6. "mostBudgetFriendly": Most Budget-Friendly
+        7. "mostPopular": Most Popular Choice
+        
+        Return ONLY a JSON object mapping the category key to the winning package ID. Example:
+        { "bestValue": "id_1", "bestFamily": "id_2" }
+        `;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        try {
+            const aiEvaluation = JSON.parse(text);
+            res.json(aiEvaluation);
+        } catch (e) {
+            res.json({});
+        }
+    } catch (err) {
+        console.error('[AI Compare Error]:', err.message || 'Failed to fetch AI comparison');
+        res.json({}); // Silently fail and just don't show AI badges if error occurs
     }
 });
 

@@ -39,6 +39,7 @@ const userSchema = new mongoose.Schema({
     
     // Trip Packages Features
     wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'TripPlan' }],
+    compareList: [{ type: mongoose.Schema.Types.ObjectId, ref: 'TripPlan' }],
     recentlyViewed: [{ type: mongoose.Schema.Types.ObjectId, ref: 'TripPlan' }]
 }, {
     timestamps: true   // adds createdAt + updatedAt automatically

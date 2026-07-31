@@ -347,6 +347,16 @@ const TravelerDashboard = () => {
                                                 </span>
                                                 
                                                 <div style={{ display: 'flex', gap: '10px' }}>
+                                                    {book.receiptPdfPath && (
+                                                        <>
+                                                            <button className="btn" style={{ padding: '6px 15px', fontSize: '13px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-main)', border: '1px solid rgba(255,255,255,0.2)' }} onClick={() => window.open(book.receiptPdfPath, '_blank')}>
+                                                                📄 Download Receipt
+                                                            </button>
+                                                            <button className="btn" style={{ padding: '6px 15px', fontSize: '13px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-main)', border: '1px solid rgba(255,255,255,0.2)' }} onClick={() => window.open(`mailto:?subject=Booking Receipt&body=Here is your booking receipt: ${window.location.origin}${book.receiptPdfPath}`)}>
+                                                                📧 Email
+                                                            </button>
+                                                        </>
+                                                    )}
                                                     {isConfirmed && !book.tripCompleted && (
                                                         <button className="btn btn-accent" style={{ padding: '6px 15px', fontSize: '13px', fontWeight: '600' }} onClick={async () => {
                                                             const token = localStorage.getItem('token');

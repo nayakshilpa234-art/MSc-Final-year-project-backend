@@ -8,6 +8,8 @@ import TripTable from './TripTable';
 import TransportCards from './TransportCards';
 import SeatSelector from './SeatSelector';
 import AddonsSelector from './AddonsSelector';
+import BookingReceiptTemplate from './BookingReceiptTemplate';
+import html2pdf from 'html2pdf.js';
 import ReviewsSection from './ReviewsSection';
 import EmergencyButton from './EmergencyButton';
 import EmergencyModal from './EmergencyModal';
@@ -22,6 +24,8 @@ const Chatbot = ({ addToCart }) => {
     const [selectedImage, setSelectedImage] = useState(null);
     const [imageMimeType, setImageMimeType] = useState(null);
     const fileInputRef = useRef(null);
+    const receiptRef = useRef(null);
+    const [receiptBookingData, setReceiptBookingData] = useState(null);
     const [bookingForm, setBookingForm] = useState(null);
     const [formData, setFormData] = useState({ travelDate: '', numberOfPeople: 1, fromCity: 'Bangalore' });
     const [travelers, setTravelers] = useState([
@@ -267,6 +271,49 @@ const Chatbot = ({ addToCart }) => {
     const [itineraryTab, setItineraryTab] = useState(3); // 1 | 2 | 3 days
     const [officialBookingStep, setOfficialBookingStep] = useState('form'); // 'form' | 'providers'
     const [officialBookingFormData, setOfficialBookingFormData] = useState({ name: '', age: '', gender: 'Male', email: '', phone: '', fromCity: 'Bangalore', toCity: '', travelDate: '', returnDate: '', adults: 1, children: 0 });
+
+    // PDF Generation Logic
+    useEffect(() => {
+        if (receiptBookingData && receiptRef.current) {
+            const generatePdf = async () => {
+                try {
+                    const element = receiptRef.current;
+                    const opt = {
+                        margin:       0,
+                        filename:     `receipt-${receiptBookingData._id}.pdf`,
+                        image:        { type: 'jpeg', quality: 0.98 },
+                        html2canvas:  { scale: 2 },
+                        jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+                    };
+                    const pdfBlob = await html2pdf().from(element).set(opt).output('blob');
+                    const formData = new FormData();
+                    formData.append('receipt', pdfBlob, `receipt-${receiptBookingData._id}.pdf`);
+                    const res = await axios.post(`/api/bookings/${receiptBookingData._id}/receipt`, formData);
+                    
+                    // Filter out the "Generating your digital receipt..." message and add the real card
+                    setMessages(prev => {
+                        const filtered = prev.filter(m => m.text !== 'Generating your digital receipt...');
+                        return [...filtered, {
+                            text: '',
+                            sender: 'bot',
+                            isReceiptCard: true,
+                            receiptData: {
+                                bookingId: receiptBookingData._id,
+                                transactionId: res.data.transactionId,
+                                invoiceNumber: res.data.invoiceNumber,
+                                receiptPdfPath: res.data.receiptPdfPath
+                            }
+                        }];
+                    });
+                } catch (err) {
+                    console.error("PDF generation failed:", err);
+                } finally {
+                    setReceiptBookingData(null); // Prevent re-trigger
+                }
+            };
+            setTimeout(generatePdf, 500); 
+        }
+    }, [receiptBookingData]);
 
     // Demo external booking states
     const [activeDemoProvider, setActiveDemoProvider] = useState(null);
@@ -1078,24 +1125,24 @@ const Chatbot = ({ addToCart }) => {
         }
     };
 
-        const callEmergency = async (query, opts = {}) => {
-            try {
-                const token = localStorage.getItem('token');
-                const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-                const payload = { query };
-                if (opts.lat && opts.lng) { payload.lat = opts.lat; payload.lng = opts.lng; }
-                if (opts.tripId) payload.tripId = opts.tripId;
-                setMessages(prev => [...prev, { text: query, sender: 'user' }]);
-                const res = await axios.post('/api/emergency', payload, config);
-                if (res.data && res.data.aiResponse) {
-                    setMessages(prev => [...prev, { text: res.data.aiResponse, sender: 'bot' }]);
-                } else {
-                    setMessages(prev => [...prev, { text: 'Sorry, could not get emergency guidance right now.', sender: 'bot' }]);
-                }
-            } catch (err) {
-                setMessages(prev => [...prev, { text: 'Emergency service unavailable. Try again or contact local authorities.', sender: 'bot' }]);
+    const callEmergency = async (query, opts = {}) => {
+        try {
+            const token = localStorage.getItem('token');
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            const payload = { query };
+            if (opts.lat && opts.lng) { payload.lat = opts.lat; payload.lng = opts.lng; }
+            if (opts.tripId) payload.tripId = opts.tripId;
+            setMessages(prev => [...prev, { text: query, sender: 'user' }]);
+            const res = await axios.post('/api/emergency', payload, config);
+            if (res.data && res.data.aiResponse) {
+                setMessages(prev => [...prev, { text: res.data.aiResponse, sender: 'bot' }]);
+            } else {
+                setMessages(prev => [...prev, { text: 'Sorry, could not get emergency guidance right now.', sender: 'bot' }]);
             }
-        };
+        } catch (err) {
+            setMessages(prev => [...prev, { text: 'Emergency service unavailable. Try again or contact local authorities.', sender: 'bot' }]);
+        }
+    };
 
     const submitBooking = async (e) => {
         e.preventDefault();
@@ -1443,8 +1490,23 @@ const Chatbot = ({ addToCart }) => {
                                 });
                                 const verifyData = await verifyRes.json();
                                 if (verifyData.success) {
+                                    // Set booking data to trigger PDF generation
+                                    const fetchAndTriggerPdf = async () => {
+                                        try {
+                                            const freshBookingRes = await axios.get('/api/bookings');
+                                            const freshBooking = freshBookingRes.data.find(b => b._id === postBookingFlow.bookingId);
+                                            if (freshBooking) {
+                                                setReceiptBookingData(freshBooking);
+                                            }
+                                        } catch (e) {
+                                            console.error("Failed to fetch fresh booking for receipt", e);
+                                        }
+                                    };
+                                    fetchAndTriggerPdf();
+
                                     const newMsgs = [
-                                        { text: 'Payment successful! 🎉', sender: 'bot' },
+                                        { text: '🎉 **Booking Confirmed Successfully!**\nThank you for booking with AI Tourist Assistant. Your booking has been confirmed.\n\nStatus: ✅ Confirmed', sender: 'bot' },
+                                        { text: 'Generating your digital receipt...', sender: 'bot' },
                                         {
                                             text: 'We would love to get your feedback! Please rate and review your booking experience below to finalize your trip plan:',
                                             sender: 'bot',
@@ -1586,7 +1648,19 @@ const Chatbot = ({ addToCart }) => {
     };
 
     return (
-        <div className="flex-responsive" style={{ gap: '20px', width: '100%', height: 'calc(100vh - 100px)' }}>
+        <div style={{
+            display: 'flex',
+            height: '100vh',
+            width: '100vw',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            background: 'url("https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2021&auto=format&fit=crop") no-repeat center center fixed',
+            backgroundSize: 'cover',
+            fontFamily: 'Inter, sans-serif'
+        }}>
+            <BookingReceiptTemplate ref={receiptRef} booking={receiptBookingData} />
+            <div className="flex-responsive" style={{ gap: '20px', width: '100%', height: 'calc(100vh - 100px)' }}>
             {/* ChatGPT-style Saved Chats left sidebar */}
             <div className="admin-sidebar" style={{ 
                 flex: '1 1 260px', 
@@ -2799,6 +2873,22 @@ const Chatbot = ({ addToCart }) => {
                                 >
                                     🔊 Listen
                                 </button>
+                            </div>
+                        )}
+                        {msg.isReceiptCard && msg.receiptData && (
+                            <div className="glass-panel" style={{ marginTop: '15px', padding: '20px', borderRadius: '12px', borderLeft: '4px solid #10b981' }}>
+                                <h3 style={{ margin: '0 0 10px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>🧾 Booking Summary</h3>
+                                <div style={{ fontSize: '13px', color: 'var(--text-main)', marginBottom: '15px', lineHeight: '1.6' }}>
+                                    <div><strong>Booking ID:</strong> {msg.receiptData.bookingId}</div>
+                                    <div><strong>Transaction ID:</strong> {msg.receiptData.transactionId}</div>
+                                    <div><strong>Invoice:</strong> {msg.receiptData.invoiceNumber}</div>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                                    <button className="btn btn-accent" onClick={() => window.open(msg.receiptData.receiptPdfPath, '_blank')}>📄 Download Booking Receipt (PDF)</button>
+                                    <button className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => window.open(msg.receiptData.receiptPdfPath, '_blank')}>🧾 Download Invoice</button>
+                                    <button className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => window.open(`mailto:?subject=Booking Receipt&body=Here is your booking receipt: ${window.location.origin}${msg.receiptData.receiptPdfPath}`)}>📧 Email Receipt</button>
+                                    <button className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => { const printWindow = window.open(msg.receiptData.receiptPdfPath, '_blank'); printWindow.onload = () => printWindow.print(); }}>🖨 Print Receipt</button>
+                                </div>
                             </div>
                         )}
                         {msg.options && msg.options.length > 0 && msg.step !== 'stay' && (

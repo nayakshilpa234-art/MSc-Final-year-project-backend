@@ -352,8 +352,6 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
             console.error("Gemini failed, falling back to basic...");
             if (err.status) console.error(`[Gemini Error Status]: ${err.status} - ${err.statusText}`);
             if (err.message) console.error(`[Gemini Error Message]: ${err.message}`);
-            // Log any deeper underlying axios/REST errors that the SDK swallows
-            console.error("FULL RAW ERROR:", JSON.stringify(err, null, 2));
         }
     }
 

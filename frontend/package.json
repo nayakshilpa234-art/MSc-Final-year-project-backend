@@ -13,10 +13,13 @@
     "axios": "^1.13.6",
     "framer-motion": "^12.43.0",
     "html2canvas": "^1.4.1",
+    "html2pdf.js": "^0.14.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
+    "react-barcode": "^1.6.1",
     "react-dom": "^19.2.4",
+    "react-qr-code": "^2.2.0",
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
