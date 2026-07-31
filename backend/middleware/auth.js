@@ -1,11 +1,14 @@
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
-module.exports = function (req, res, next) {
-    const token = req.header('Authorization');
-    if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
+// ── Standard auth middleware (any logged-in user)
+module.exports = async function (req, res, next) {
+    const authHeader = req.header('Authorization');
+    if (!authHeader) return res.status(401).json({ msg: 'No token, authorization denied' });
 
+    const token = authHeader.replace('Bearer ', '');
     try {
-        const decoded = jwt.verify(token.replace('Bearer ', ''), process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded.user;
         next();
     } catch (err) {

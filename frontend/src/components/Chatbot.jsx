@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Send, MapPin, IndianRupee, Info, Mic, MicOff, Plus, Trash2, Edit3, Search, MessageSquare, Download } from 'lucide-react';
+import { Send, MapPin, IndianRupee, Info, Mic, MicOff, Volume2, VolumeX, Settings, Plus, Trash2, Edit3, Search, MessageSquare, Download, Image as ImageIcon, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -9,6 +9,9 @@ import TransportCards from './TransportCards';
 import SeatSelector from './SeatSelector';
 import AddonsSelector from './AddonsSelector';
 import ReviewsSection from './ReviewsSection';
+import EmergencyButton from './EmergencyButton';
+import EmergencyModal from './EmergencyModal';
+import FeedbackModal from './FeedbackModal';
 
 const Chatbot = ({ addToCart }) => {
     const [messages, setMessages] = useState([
@@ -16,8 +19,228 @@ const Chatbot = ({ addToCart }) => {
     ]);
     const [input, setInput] = useState('');
     const [isSending, setIsSending] = useState(false);
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [imageMimeType, setImageMimeType] = useState(null);
+    const fileInputRef = useRef(null);
     const [bookingForm, setBookingForm] = useState(null);
-    const [formData, setFormData] = useState({ name: '', email: '', travelDate: '', numberOfPeople: 1, fromCity: 'Bangalore' });
+    const [formData, setFormData] = useState({ travelDate: '', numberOfPeople: 1, fromCity: 'Bangalore' });
+    const [travelers, setTravelers] = useState([
+        {
+            name: '',
+            age: '',
+            gender: 'Male',
+            mobile: '',
+            email: '',
+            specialRequirements: {
+                wheelchair: false,
+                seniorAssistance: false,
+                extraLuggage: false,
+                mealPreference: 'No Preference',
+                pregnant: false,
+                medicalConditionSupport: false,
+                medicalConditionDetails: '',
+                petTraveler: false,
+                accessibleTransport: false,
+                emergencySupport: false
+            }
+        }
+    ]);
+
+    const handleNumPeopleChange = (val) => {
+        const count = Math.max(1, parseInt(val) || 1);
+        setFormData(prev => ({ ...prev, numberOfPeople: count }));
+        
+        setTravelers(prev => {
+            const copy = [...prev];
+            if (copy.length < count) {
+                for (let i = copy.length; i < count; i++) {
+                    copy.push({
+                        name: '',
+                        age: '',
+                        gender: 'Male',
+                        mobile: '',
+                        email: '',
+                        specialRequirements: {
+                            wheelchair: false,
+                            seniorAssistance: false,
+                            extraLuggage: false,
+                            mealPreference: 'No Preference',
+                            pregnant: false,
+                            medicalConditionSupport: false,
+                            medicalConditionDetails: '',
+                            petTraveler: false,
+                            accessibleTransport: false,
+                            emergencySupport: false
+                        }
+                    });
+                }
+            } else if (copy.length > count) {
+                return copy.slice(0, count);
+            }
+            return copy;
+        });
+    };
+
+    const updateTravelerField = (index, field, value) => {
+        setTravelers(prev => {
+            const copy = [...prev];
+            copy[index] = { ...copy[index], [field]: value };
+            return copy;
+        });
+    };
+
+    const updateTravelerRequirement = (index, reqKey, val) => {
+        setTravelers(prev => {
+            const copy = [...prev];
+            const specialRequirements = { ...copy[index].specialRequirements, [reqKey]: val };
+            copy[index] = { ...copy[index], specialRequirements };
+            return copy;
+        });
+    };
+
+    const getAgeCategory = (age) => {
+        const parsedAge = parseInt(age);
+        if (Number.isNaN(parsedAge)) return 'Adult';
+        if (parsedAge >= 12) return 'Adult';
+        if (parsedAge >= 5) return 'Child';
+        return 'Infant';
+    };
+
+    const getTravelerProfile = (traveler) => {
+        const age = parseInt(traveler.age);
+        const req = traveler.specialRequirements || {};
+        if (req.pregnant) return 'Pregnant Traveler';
+        if (req.medicalConditionSupport) return 'Medical Condition Support';
+        if (req.petTraveler) return 'Pet Traveler';
+        if (req.wheelchair || req.accessibleTransport) return 'Differently-Abled Traveler';
+        if (req.seniorAssistance || (!Number.isNaN(age) && age >= 60)) return 'Senior Citizen';
+        if (!Number.isNaN(age) && age >= 5 && age < 12) return 'Child';
+        if (!Number.isNaN(age) && age < 5) return 'Infant';
+        return 'Adult';
+    };
+
+    const getPricingMultiplier = (ageCategory) => {
+        if (ageCategory === 'Adult') return 1.0;
+        if (ageCategory === 'Child') return 0.5;
+        return 0.0;
+    };
+
+    const getTravelersPriceMultiplier = () => {
+        return travelers.reduce((sum, t) => sum + getPricingMultiplier(getAgeCategory(t.age)), 0);
+    };
+
+    const totalMultipliers = getTravelersPriceMultiplier();
+
+    const travelerCounts = travelers.reduce((acc, t) => {
+        const category = getAgeCategory(t.age);
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+    }, {});
+
+    const getTravelerType = (travs) => {
+        if (!travs || travs.length === 0) return 'Solo Traveler';
+        const profiles = travs.map(getTravelerProfile);
+        if (profiles.includes('Pregnant Traveler')) return 'Pregnant Travelers';
+        if (profiles.includes('Medical Condition Support')) return 'Medical Condition Support';
+        if (profiles.includes('Pet Traveler')) return 'Pet Travelers';
+        if (profiles.includes('Differently-Abled Traveler')) return 'Differently-Abled Travelers';
+        if (profiles.includes('Senior Citizen')) return 'Senior Citizen';
+        const count = travs.length;
+        const hasChildOrInfant = profiles.some(p => p === 'Child' || p === 'Infant');
+        if (count === 1) return 'Solo Traveler';
+        if (count === 2 && !hasChildOrInfant) return 'Couple';
+        if (hasChildOrInfant) return 'Family';
+        return 'Group';
+    };
+
+    const getPersonalizedRecommendations = (type) => {
+        switch (type) {
+            case 'Solo Traveler':
+                return [
+                    { title: 'Social Mixer Tour 👥', desc: 'Join a group of fellow solo travelers for an evening walking tour and social mixer.' },
+                    { title: 'Adventure Sports Upgrade 🪂', desc: 'Add bungee jumping or river rafting at a special solo discount.' }
+                ];
+            case 'Couple':
+                return [
+                    { title: 'Candlelight Dinner Upgrade 🕯️', desc: 'Enjoy a romantic 3-course private beachside dinner with wine.' },
+                    { title: 'Couple\'s Spa & Wellness 💆', desc: 'Relax with a premium 90-minute therapeutic massage package.' }
+                ];
+            case 'Family':
+                return [
+                    { title: 'Amusement Park Passes 🎡', desc: 'Pre-book passes for the top kid-friendly amusement parks with fast-track entry.' },
+                    { title: 'Baby Stroller & Gear Rental 👶', desc: 'Save luggage space! Rent a premium stroller and child booster seats.' }
+                ];
+            case 'Group':
+                return [
+                    { title: 'Private Villa Upgrade 🏡', desc: 'Upgrade your rooms to a luxury private villa with a private pool and BBQ setup.' },
+                    { title: 'Private Tour Charter 🚐', desc: 'Get a dedicated private minibus with a local guide for your group.' }
+                ];
+            case 'Senior Citizen':
+                return [
+                    { title: 'Relaxed Pace Sightseeing 🌸', desc: 'A slower-paced itinerary with priority seating and minimal walking requirements.' },
+                    { title: 'Ground Floor Room Request 🏨', desc: 'Complimentary request for ground floor or wheelchair-accessible hotel rooms.' },
+                    { title: 'On-Call Medical Assistance 🩺', desc: '24/7 access to local medical assistance partners for peace of mind.' }
+                ];
+            case 'Pregnant Travelers':
+                return [
+                    { title: 'Safe Destination Choices 🛡️', desc: 'Recommend calm, low-altitude, easy-access destinations optimized for comfort.' },
+                    { title: 'Nearby Hospital & Clinic Info 🏥', desc: 'Provide medical facility locations and emergency contact details before travel.' },
+                    { title: 'Comfortable Transport 🚗', desc: 'Prefer smooth, short transfers with extra rest breaks and supportive seating.' }
+                ];
+            case 'Differently-Abled Travelers':
+                return [
+                    { title: 'Wheelchair & Accessibility Support ♿', desc: 'Focus on wheelchair-friendly hotels, restaurants, and attractions.' },
+                    { title: 'Accessible Transport 🚍', desc: 'Use ground transport options suited for accessible boarding and extra assistance.' },
+                    { title: 'Accessible Activity Routes 🧭', desc: 'Suggest low-step sightseeing routes and easy-access entry points.' }
+                ];
+            case 'Medical Condition Support':
+                return [
+                    { title: 'Emergency Medical Information 🩺', desc: 'Carry clear access to local clinics, pharmacies, and emergency protocols.' },
+                    { title: 'Nearby Hospitals & Pharmacies 🏥', desc: 'Recommend places with quick healthcare access close to stay locations.' },
+                    { title: 'Health-Friendly Itinerary 💊', desc: 'Avoid exhausting schedules and risky physical activities.' }
+                ];
+            case 'Pet Travelers':
+                return [
+                    { title: 'Pet-Friendly Hotels 🏨', desc: 'Book properties that welcome pets and provide safe sleeping spaces.' },
+                    { title: 'Pet-Friendly Attractions 🐾', desc: 'Find experiences that allow pets such as parks and outdoor venues.' },
+                    { title: 'Pet Care Support 🐕', desc: 'Offer nearby vet contact details and pet supply stores as backup.' }
+                ];
+            default:
+                return [];
+        }
+    };
+
+    // Helper: returns true only when a real token is stored
+    const isValidToken = (tok) => !!tok && tok !== 'null' && tok !== 'undefined' && tok.split('.').length === 3;
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        const username = localStorage.getItem('username') || 'guest';
+        // Only call /api/auth/me when there's actually a logged-in user
+        if (!isValidToken(token) || username === 'guest') return;
+        axios.get('/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(res => {
+            setTravelers(prev => {
+                const copy = [...prev];
+                if (copy[0]) {
+                    copy[0].name = res.data.username || '';
+                    copy[0].email = res.data.email || '';
+                }
+                return copy;
+            });
+        })
+        .catch(err => {
+            if (err?.response?.status === 401) {
+                // Token is stale or signed with old secret – clear it
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                setCurrentUser('guest');
+            }
+        });
+    }, []);
+
     const messagesEndRef = useRef(null);
     const [topBeach, setTopBeach] = useState(null);
     const [pendingBookings, setPendingBookings] = useState([]);
@@ -26,12 +249,87 @@ const Chatbot = ({ addToCart }) => {
     const [searchResult, setSearchResult] = useState(null);
     const [postBookingFlow, setPostBookingFlow] = useState(null);
     const [isListening, setIsListening] = useState(false);
+    const [isMicStarting, setIsMicStarting] = useState(false);
+    const [micError, setMicError] = useState('');
+    const isListeningRef = useRef(false);
+    const voiceTranscriptRef = useRef('');
+    const micErrorTimerRef = useRef(null);
     const [detailPage, setDetailPage] = useState(null);
     const [currentUser, setCurrentUser] = useState(localStorage.getItem('username') || 'guest');
     const [expandedHotel, setExpandedHotel] = useState(null);
     const [realtimeData, setRealtimeData] = useState(null);
     const [originCity, setOriginCity] = useState('');
     const [routeData, setRouteData] = useState(null);
+    const [bookingChoice, setBookingChoice] = useState(null);
+    const [showExternalLinks, setShowExternalLinks] = useState(false);
+    const [postExternalBooking, setPostExternalBooking] = useState(false);
+    const [externalBookingData, setExternalBookingData] = useState({ pnr: '', bookingReference: '', ticketFile: '', screenshotFile: '', showForm: false });
+    const [itineraryTab, setItineraryTab] = useState(3); // 1 | 2 | 3 days
+    const [officialBookingStep, setOfficialBookingStep] = useState('form'); // 'form' | 'providers'
+    const [officialBookingFormData, setOfficialBookingFormData] = useState({ name: '', age: '', gender: 'Male', email: '', phone: '', fromCity: 'Bangalore', toCity: '', travelDate: '', returnDate: '', adults: 1, children: 0 });
+
+    // Demo external booking states
+    const [activeDemoProvider, setActiveDemoProvider] = useState(null);
+    const [demoBookingStep, setDemoBookingStep] = useState('view'); // 'view' | 'form' | 'success'
+    const [demoBookingForm, setDemoBookingForm] = useState({ fullName: '', email: '', mobile: '', travelers: 1, travelDate: '' });
+    const [demoBookingResult, setDemoBookingResult] = useState(null);
+
+    const handleDemoProviderClick = (providerName, providerType) => {
+        setActiveDemoProvider({ name: providerName, type: providerType });
+        setDemoBookingStep('view');
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 7);
+        const dateStr = defaultDate.toISOString().split('T')[0];
+        setDemoBookingForm({
+            fullName: '',
+            email: '',
+            mobile: '',
+            travelers: 1,
+            travelDate: dateStr
+        });
+        setDemoBookingResult(null);
+    };
+
+    const getDemoProviderPrice = () => {
+        if (!bookingChoice) return 0;
+        const basePrice = bookingChoice.price || 5000;
+        if (activeDemoProvider?.type === 'flight') {
+            return Math.round(basePrice * 0.6);
+        }
+        return Math.round(basePrice * 0.2); // hotel per night
+    };
+
+    const submitDemoBooking = (e) => {
+        e.preventDefault();
+        if (!demoBookingForm.fullName || !demoBookingForm.email || !demoBookingForm.mobile) {
+            alert('Please fill all required fields');
+            return;
+        }
+        
+        const bookingId = `${activeDemoProvider.type === 'flight' ? 'FL' : 'HT'}-${Math.floor(1000 + Math.random() * 9000)}-${String.fromCharCode(65 + Math.floor(Math.random() * 26))}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}`;
+        const singlePrice = getDemoProviderPrice();
+        const totalPrice = singlePrice * demoBookingForm.travelers;
+        
+        setDemoBookingResult({
+            id: bookingId,
+            fullName: demoBookingForm.fullName,
+            email: demoBookingForm.email,
+            mobile: demoBookingForm.mobile,
+            travelers: demoBookingForm.travelers,
+            travelDate: demoBookingForm.travelDate,
+            totalPrice: totalPrice,
+            message: `Your demo booking has been successfully processed by ${activeDemoProvider.name}. This confirms reservation for academic project viva presentation.`
+        });
+        setDemoBookingStep('success');
+    };
+    const [showCommunityModal, setShowCommunityModal] = useState(false);
+    const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+    const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+    const [communityFormData, setCommunityFormData] = useState({ placeName: '', description: '', category: 'hidden-gem', location: '', image: null });
+    const [voiceSettings, setVoiceSettings] = useState({ speakerOn: false, voiceGender: 'female', speechSpeed: 1.0 });
+    const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+    const recognitionRef = useRef(null);
+    const recognitionRetryRef = useRef(0);
 
     const exportToPDF = async (elementId, filename) => {
         const element = document.getElementById(elementId);
@@ -53,6 +351,26 @@ const Chatbot = ({ addToCart }) => {
         if (detailPage) {
             setRealtimeData(null);
             setRouteData(null);
+            // Auto-detect user location for distance via Geolocation API
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const userLat = position.coords.latitude;
+                    const userLon = position.coords.longitude;
+                    
+                    // Reverse geocode to get city name for the input field automatically
+                    try {
+                        const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${userLat}&lon=${userLon}`);
+                        const geoData = await geoRes.json();
+                        if (geoData && geoData.address) {
+                            const city = geoData.address.city || geoData.address.town || geoData.address.village || geoData.address.state;
+                            setOriginCity(city);
+                        }
+                    } catch(e) { console.log('Reverse geocoding error', e); }
+                }, (error) => {
+                    console.log('Geolocation permission denied or failed.', error);
+                });
+            }
+
             fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(detailPage.place_name)}&limit=1`)
                 .then(res => res.json())
                 .then(data => {
@@ -76,6 +394,7 @@ const Chatbot = ({ addToCart }) => {
     const calculateDistance = async () => {
         if (!originCity || !realtimeData) return;
         try {
+            setRouteData({ calculating: true });
             const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(originCity)}&limit=1`);
             const data = await res.json();
             if (data && data.length > 0) {
@@ -87,9 +406,16 @@ const Chatbot = ({ addToCart }) => {
                     const distanceKm = (osrmData.routes[0].distance / 1000).toFixed(1);
                     const timeHrs = (osrmData.routes[0].duration / 3600).toFixed(1);
                     setRouteData({ distance: distanceKm, time: timeHrs });
+                } else {
+                    setRouteData({ error: 'No driving route found (might be overseas).' });
                 }
+            } else {
+                setRouteData({ error: 'Origin city not found.' });
             }
-        } catch(e) { console.log('Route fetch error', e); }
+        } catch(e) { 
+            console.log('Route fetch error', e); 
+            setRouteData({ error: 'Error calculating route.' });
+        }
     };
 
     const [chats, setChats] = useState([]);
@@ -113,7 +439,7 @@ const Chatbot = ({ addToCart }) => {
         const syncMessageToDB = async () => {
             const tokenStr = localStorage.getItem('token');
             const username = localStorage.getItem('username') || 'guest';
-            if (!tokenStr || username === 'guest' || isRestoringChat.current) {
+            if (!tokenStr || tokenStr === 'null' || tokenStr === 'undefined' || username === 'guest' || isRestoringChat.current) {
                 prevMessagesLength.current = messages.length;
                 return;
             }
@@ -186,22 +512,30 @@ const Chatbot = ({ addToCart }) => {
 
     const loadChatHistory = async () => {
         const token = localStorage.getItem('token');
-        if (!token) return;
+        const username = localStorage.getItem('username') || 'guest';
+        // Skip silently for guests or missing/invalid tokens
+        if (!isValidToken(token) || username === 'guest') return;
         setLoadingChats(true);
         try {
             const userId = getUserIdFromToken();
-            if (userId) {
-                const res = await axios.get(`/api/chat/history/${userId}`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                setChats(res.data);
-                // Auto load most recent chat on mount if not currently in a chat
-                if (res.data.length > 0 && !currentChatId) {
-                    openChat(res.data[0]._id);
-                }
+            if (!userId) return;
+            const res = await axios.get(`/api/chat/history/${userId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setChats(res.data);
+            // Auto load most recent chat on mount if not currently in a chat
+            if (res.data.length > 0 && !currentChatId) {
+                openChat(res.data[0]._id);
             }
         } catch (err) {
-            console.error("Failed to load chat history", err);
+            if (err?.response?.status === 401) {
+                // Token is stale – clear it so user knows to log in again
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                setCurrentUser('guest');
+            } else {
+                console.error("Failed to load chat history", err);
+            }
         } finally {
             setLoadingChats(false);
         }
@@ -242,6 +576,10 @@ const Chatbot = ({ addToCart }) => {
         setMessages(newGreeting);
         setPostBookingFlow(null);
         setBookingForm(null);
+        setBookingChoice(null);
+        setShowExternalLinks(false);
+        setPostExternalBooking(false);
+        setExternalBookingData({ pnr: '', bookingReference: '', ticketFile: '', screenshotFile: '', showForm: false });
         prevMessagesLength.current = newGreeting.length;
         setTimeout(() => {
             isRestoringChat.current = false;
@@ -280,7 +618,12 @@ const Chatbot = ({ addToCart }) => {
     };
 
     useEffect(() => {
-        loadChatHistory();
+        // Only attempt to load history for authenticated users
+        const token = localStorage.getItem('token');
+        const username = localStorage.getItem('username') || 'guest';
+        if (isValidToken(token) && username !== 'guest') {
+            loadChatHistory();
+        }
     }, [currentUser]);
 
     // Dynamic Auth & Persisted History synchronization
@@ -292,17 +635,38 @@ const Chatbot = ({ addToCart }) => {
             const token = localStorage.getItem('token');
             if (token && newUser !== 'guest') {
                 loadChatHistory();
+                
+                // Fetch Voice Settings
+                try {
+                    const userId = getUserIdFromToken();
+                    if (userId) {
+                        const prefsRes = await axios.get(`/api/preferences/${userId}`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                        });
+                        if (prefsRes.data && prefsRes.data.voiceSettings) {
+                            setVoiceSettings(prefsRes.data.voiceSettings);
+                            localStorage.setItem(`voiceSettings_${newUser}`, JSON.stringify(prefsRes.data.voiceSettings));
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load voice preferences', e);
+                }
+                
                 return;
             }
             
             // Fallback to local storage (e.g. for guest or if offline)
             const saved = localStorage.getItem(`chatHistory_${newUser}`);
+            const savedVoiceSettings = localStorage.getItem(`voiceSettings_${newUser}`);
             if (saved) {
                 setMessages(JSON.parse(saved));
             } else {
                 setMessages([
                     { text: "Hi! I'm your AI Tourist Assistant. Looking for a beach, mountain, or historical destination? Or do you want to book a trip?", sender: 'bot' }
                 ]);
+            }
+            if (savedVoiceSettings) {
+                setVoiceSettings(JSON.parse(savedVoiceSettings));
             }
         };
 
@@ -311,46 +675,247 @@ const Chatbot = ({ addToCart }) => {
         return () => window.removeEventListener('authChange', handleAuth);
     }, []);
 
-    const toggleListening = () => {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            alert("Your browser does not support Voice Recognition. Please try Google Chrome.");
-            return;
+    const updateVoiceSettings = async (newSettings) => {
+        setVoiceSettings(newSettings);
+        const username = localStorage.getItem('username') || 'guest';
+        try {
+            localStorage.setItem(`voiceSettings_${username}`, JSON.stringify(newSettings));
+        } catch (err) {
+            console.warn('Unable to persist voice settings locally', err);
         }
 
-        if (isListening) {
-            setIsListening(false);
-            return;
+        const token = localStorage.getItem('token');
+        const userId = getUserIdFromToken();
+        if (token && userId) {
+            try {
+                await axios.put(`/api/preferences/${userId}`, { voiceSettings: newSettings }, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+            } catch (err) {
+                console.error('Failed to save voice settings', err);
+            }
         }
+    };
+
+    const handleSpeakerToggle = () => {
+        updateVoiceSettings({ ...voiceSettings, speakerOn: !voiceSettings.speakerOn });
+    };
+
+    const handleVoicePreferenceChange = (field, value) => {
+        updateVoiceSettings({ ...voiceSettings, [field]: value });
+    };
+
+    const handleListenClick = (text) => {
+        if (!window.speechSynthesis) return;
+        if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+        speakMessage(text, { ...voiceSettings, speakerOn: true });
+    };
+
+    const speakMessage = (text, customSettings = null) => {
+        if (!window.speechSynthesis) return;
+        const settings = customSettings || voiceSettings;
+        if (!customSettings && !settings.speakerOn) return;
+        if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text.replace(/[\*#]/g, ''));
+        utterance.rate = settings.speechSpeed || 1.0;
+        
+        let voices = window.speechSynthesis.getVoices();
+        // Browser might need a moment to load voices
+        if (voices.length === 0) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                voices = window.speechSynthesis.getVoices();
+                applyVoiceAndSpeak(utterance, voices, settings);
+            };
+        } else {
+            applyVoiceAndSpeak(utterance, voices, settings);
+        }
+    };
+
+    const applyVoiceAndSpeak = (utterance, voices, settings) => {
+        let selectedVoice = null;
+        if (settings.voiceGender === 'female') {
+            selectedVoice = voices.find(v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman') || v.name.toLowerCase().includes('zira') || v.name.toLowerCase().includes('samantha')) || voices.find(v => v.lang.startsWith('en'));
+        } else {
+            selectedVoice = voices.find(v => v.name.toLowerCase().includes('male') || v.name.toLowerCase().includes('man') || v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('daniel')) || voices.find(v => v.lang.startsWith('en'));
+        }
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+        }
+        window.speechSynthesis.speak(utterance);
+    };
+
+    const showMicError = (message) => {
+        setMicError(message);
+        if (micErrorTimerRef.current) {
+            window.clearTimeout(micErrorTimerRef.current);
+        }
+        micErrorTimerRef.current = window.setTimeout(() => setMicError(''), 5000);
+    };
+
+    const resetMicState = () => {
+        setIsListening(false);
+        setIsMicStarting(false);
+        isListeningRef.current = false;
+        recognitionRef.current = null;
+    };
+
+    // Creates and starts a fresh SpeechRecognition instance
+    const startNewRecognitionInstance = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
 
         const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
         recognition.lang = 'en-US';
-        recognition.interimResults = false;
+        recognition.interimResults = true;
         recognition.maxAlternatives = 1;
-        recognition.continuous = false; // Stop exactly when they pause
+        recognition.continuous = false; // false + manual restart = most reliable approach
 
-        recognition.onstart = () => setIsListening(true);
-        
+        recognition.onstart = () => {
+            setIsMicStarting(false);
+            setIsListening(true);
+            isListeningRef.current = true;
+        };
+
         recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            setInput(prev => prev + " " + transcript); // Append beautifully
+            let interimTranscript = '';
+            let finalTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const t = event.results[i][0].transcript;
+                if (event.results[i].isFinal) finalTranscript += t;
+                else interimTranscript += t;
+            }
+            const base = voiceTranscriptRef.current;
+            if (finalTranscript) {
+                voiceTranscriptRef.current = `${base} ${finalTranscript}`.trim();
+                setInput(voiceTranscriptRef.current);
+            } else if (interimTranscript) {
+                setInput(`${base} ${interimTranscript}`.trim());
+            }
         };
 
         recognition.onend = () => {
-            setIsListening(false);
+            // If user hasn't stopped, restart with a fresh instance after a short delay
+            if (isListeningRef.current) {
+                setTimeout(() => {
+                    if (isListeningRef.current) {
+                        startNewRecognitionInstance();
+                    }
+                }, 150);
+                return;
+            }
+            // User explicitly stopped — finalize transcript
+            const transcript = voiceTranscriptRef.current.trim();
+            voiceTranscriptRef.current = '';
+            if (transcript) {
+                setInput(transcript);
+                try {
+                    const el = document.querySelector('.chat-input input');
+                    if (el) { el.focus(); }
+                } catch (e) {}
+            }
         };
 
         recognition.onerror = (event) => {
-            console.error("Speech recognition error", event.error);
-            setIsListening(false);
+            console.error('Speech recognition error:', event.error);
+            if (event.error === 'aborted') return; // normal, ignore
+            if (event.error === 'no-speech') return; // silence — onend will restart
+            if (event.error === 'not-allowed') {
+                resetMicState();
+                showMicError('Microphone permission denied. Click the 🔒 icon in your browser address bar and allow microphone access.');
+                return;
+            }
+            if (event.error === 'audio-capture') {
+                resetMicState();
+                showMicError('No microphone detected. Please connect a microphone and try again.');
+                return;
+            }
+            if (event.error === 'network') {
+                // Network errors are often transient — don't reset state.
+                // Let onend fire and restart with a fresh instance automatically.
+                // Only show error and give up after 3 consecutive network failures.
+                recognitionRetryRef.current = (recognitionRetryRef.current || 0) + 1;
+                if (recognitionRetryRef.current >= 3) {
+                    recognitionRetryRef.current = 0;
+                    resetMicState();
+                    showMicError('Voice recognition unavailable. Make sure you are using Chrome/Edge and are connected to the internet.');
+                }
+                // else: silently let onend handle the restart
+                return;
+            }
+            // For other errors, just silently reset so user can try again
+            resetMicState();
         };
 
         try {
             recognition.start();
-        } catch(e) {
-            setIsListening(false);
+        } catch (e) {
+            console.error('Recognition start failed:', e);
+            resetMicState();
         }
     };
+
+    const toggleListening = async () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            showMicError('Voice recognition is not supported. Please use Chrome or Edge browser.');
+            return;
+        }
+
+        // If already listening — stop
+        if (isListeningRef.current || isMicStarting) {
+            isListeningRef.current = false; // signal onend to NOT restart
+            setIsListening(false);
+            setIsMicStarting(false);
+            if (recognitionRef.current) {
+                try { recognitionRef.current.stop(); } catch (_) {}
+                recognitionRef.current = null;
+            }
+            return;
+        }
+
+        setMicError('');
+        voiceTranscriptRef.current = input.trim();
+
+        if (window.speechSynthesis?.speaking) {
+            window.speechSynthesis.cancel();
+        }
+
+        // Check microphone permission first
+        try {
+            setIsMicStarting(true);
+            if (!navigator.mediaDevices?.getUserMedia) {
+                throw new Error('no-api');
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach((t) => t.stop());
+        } catch (err) {
+            resetMicState();
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                showMicError('Microphone access denied. Click the 🔒 icon in your address bar and allow microphone.');
+            } else if (err.name === 'NotFoundError') {
+                showMicError('No microphone found. Please connect a microphone and try again.');
+            } else {
+                showMicError('Could not access microphone. Please check your browser settings.');
+            }
+            return;
+        }
+
+        startNewRecognitionInstance();
+    };
+
+    useEffect(() => {
+        return () => {
+            if (recognitionRef.current) {
+                try {
+                    recognitionRef.current.stop();
+                } catch (_) {}
+            }
+            if (micErrorTimerRef.current) {
+                window.clearTimeout(micErrorTimerRef.current);
+            }
+        };
+    }, []);
 
     // Keep LocalStorage synchronized on message changes for guests
     useEffect(() => {
@@ -420,13 +985,42 @@ const Chatbot = ({ addToCart }) => {
         }
     }, [detailPage]);
 
-    const handleSend = async () => {
-        if (!input.trim() || isSending) return;
+    const handleImageChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (!validTypes.includes(file.type)) {
+            alert('Please upload a valid image file (JPG, PNG, WEBP).');
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Image size should be less than 5MB.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setSelectedImage(reader.result);
+            setImageMimeType(file.type);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleSend = async (overrideMessage = null) => {
+        const draft = overrideMessage !== null ? overrideMessage : input;
+        if (!draft.trim() && !selectedImage) return; // Allow sending just image
+        if (isSending) return;
         setIsSending(true);
 
-        const userMsg = input;
+        const userMsg = draft;
+        const currentImage = selectedImage;
+        const currentMimeType = imageMimeType;
+        
         setInput('');
-        setMessages(prev => [...prev, { text: userMsg, sender: 'user' }]);
+        setSelectedImage(null);
+        setImageMimeType(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        setMessages(prev => [...prev, { text: userMsg, sender: 'user', image: currentImage }]);
 
         const tokenStr = localStorage.getItem('token');
         const config = (tokenStr && tokenStr !== 'null') ? { headers: { Authorization: `Bearer ${tokenStr}` } } : {};
@@ -446,7 +1040,12 @@ const Chatbot = ({ addToCart }) => {
 
         try {
             const chatHistory = messages.slice(-8).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n');
-            const res = await axios.post('/api/chat', { message: userMsg, history: chatHistory }, config);
+            const payload = { message: userMsg, history: chatHistory };
+            if (currentImage) {
+                payload.image = currentImage;
+                payload.mimeType = currentMimeType;
+            }
+            const res = await axios.post('/api/chat', payload, config);
 
             const botMsg = { 
                 text: res.data.reply, 
@@ -454,13 +1053,16 @@ const Chatbot = ({ addToCart }) => {
                 data: res.data.data, 
                 itinerary: res.data.itinerary,
                 travel_cards: res.data.travel_cards,
+                related_places: res.data.related_places || [],
+                action: res.data.action,
+                preview_card: res.data.preview_card || null,
+                full_destination: res.data.full_destination || null,
+                google_maps: res.data.google_maps || null,
                 showTrips: res.data.action === 'SHOW_TRIPS' 
             };
             
-            if (window.speechSynthesis && res.data.reply) {
-                const utterance = new SpeechSynthesisUtterance(res.data.reply.replace(/[\*#]/g, ''));
-                utterance.rate = 1.0;
-                window.speechSynthesis.speak(utterance);
+            if (voiceSettings.speakerOn && res.data.reply) {
+                speakMessage(res.data.reply);
             }
             
             setMessages(prev => [...prev, botMsg]);
@@ -476,21 +1078,68 @@ const Chatbot = ({ addToCart }) => {
         }
     };
 
+        const callEmergency = async (query, opts = {}) => {
+            try {
+                const token = localStorage.getItem('token');
+                const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+                const payload = { query };
+                if (opts.lat && opts.lng) { payload.lat = opts.lat; payload.lng = opts.lng; }
+                if (opts.tripId) payload.tripId = opts.tripId;
+                setMessages(prev => [...prev, { text: query, sender: 'user' }]);
+                const res = await axios.post('/api/emergency', payload, config);
+                if (res.data && res.data.aiResponse) {
+                    setMessages(prev => [...prev, { text: res.data.aiResponse, sender: 'bot' }]);
+                } else {
+                    setMessages(prev => [...prev, { text: 'Sorry, could not get emergency guidance right now.', sender: 'bot' }]);
+                }
+            } catch (err) {
+                setMessages(prev => [...prev, { text: 'Emergency service unavailable. Try again or contact local authorities.', sender: 'bot' }]);
+            }
+        };
+
     const submitBooking = async (e) => {
         e.preventDefault();
         try {
+            // Validate required fields
+            if (!travelers[0]?.name || !travelers[0]?.email) {
+                setMessages(prev => [...prev, { text: 'Please fill in at least the primary traveler name and email.', sender: 'bot' }]);
+                return;
+            }
+
             const payload = {
-                ...formData,
-                destination: bookingForm.destination._id,
-                destinationObj: bookingForm.destination._id.startsWith('dynamic_') ? bookingForm.destination : null
+                travelDate: formData.travelDate || new Date().toISOString().split('T')[0],
+                numberOfPeople: formData.numberOfPeople || travelers.length,
+                fromCity: formData.fromCity || 'Bangalore',
+                name: travelers[0]?.name || 'Primary Traveler',
+                email: travelers[0]?.email || 'user@example.com',
+                phone: travelers[0]?.mobile || '0000000000',
+                destination: bookingForm.destination?._id || bookingForm.destination?.id || (bookingForm.destination ? 'dynamic_' + Date.now() : 'unknown'),
+                destinationObj: (!bookingForm.destination?._id || bookingForm.destination?._id.toString().startsWith('dynamic_')) ? bookingForm.destination : null,
+                travelers: travelers.map(t => ({
+                    name: t.name || 'Traveler',
+                    age: parseInt(t.age) || 30,
+                    gender: t.gender || 'Male',
+                    mobile: t.mobile || '0000000000',
+                    email: t.email || 'user@example.com',
+                    specialRequirements: t.specialRequirements || {}
+                })),
+                pricingBreakdown: {
+                    basePrice: bookingForm.destination?.price || 5000,
+                    adultCount: travelerCounts.Adult || 0,
+                    childCount: travelerCounts.Child || 0,
+                    infantCount: travelerCounts.Infant || 0,
+                    totalMultipliers: totalMultipliers,
+                    finalBasePrice: (bookingForm.destination?.price || 5000) * totalMultipliers
+                },
+                totalCost: (bookingForm.destination?.price || 5000) * totalMultipliers
             };
             const token = localStorage.getItem('token');
-            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            const config = (token && token !== 'null' && token !== 'undefined') ? { headers: { Authorization: `Bearer ${token}` } } : {};
             const response = await axios.post('/api/bookings', payload, config);
             const bookingId = response.data._id;
             
-            const cat = (bookingForm.destination.category || '').toLowerCase();
-            const destName = bookingForm.destination.name || 'your destination';
+            const cat = (bookingForm.destination?.category || '').toLowerCase();
+            const destName = bookingForm.destination?.name || 'your destination';
             let transportModes = [
                 {label: '✈️ Flight  🔴 High CO₂', val: 'Flight', icon: '✈️'},
                 {label: '🚌 Bus  🟡 Medium CO₂', val: 'Bus', icon: '🚌'},
@@ -508,26 +1157,23 @@ const Chatbot = ({ addToCart }) => {
             setMessages(prev => [...prev, 
                 { text: `Booking successfully created for ${destName}! 🎉 Let's finalize your trip details.`, sender: 'bot' },
                 { 
-                  text: `How would you like to travel to ${destName}? Choose your mode — each shows its environmental impact!`, 
-                  sender: 'bot', 
-                  options: transportModes,
-                  step: 'transport'
+                    text: 'Select your preferred transport mode:',
+                    sender: 'bot',
+                    options: transportModes,
+                    step: 'transport'
                 }
             ]);
-            
             setPostBookingFlow({
-                bookingId: bookingId,
+                basePrice: (bookingForm.destination?.price || 5000) * totalMultipliers,
                 destination: bookingForm.destination,
-                step: 'transport',
-                fromCity: formData.fromCity || 'Bangalore',
-                basePrice: bookingForm.destination.price * formData.numberOfPeople,
-                selections: {},
-                carbonScore: 0
+                bookingId: bookingId,
+                selections: {}
             });
             setBookingForm(null);
-            setFormData({ name: '', email: '', travelDate: '', numberOfPeople: 1, fromCity: 'Bangalore' });
         } catch (err) {
-            alert('Failed to submit booking');
+            console.error('Booking submission error:', err);
+            const errorMsg = err.response?.data?.msg || err.message || 'Failed to create booking. Please try again.';
+            setMessages(prev => [...prev, { text: `Booking failed: ${errorMsg}`, sender: 'bot' }]);
         }
     };
 
@@ -672,41 +1318,50 @@ const Chatbot = ({ addToCart }) => {
         }
 
         if (step === 'meal_plan') {
-            setPostBookingFlow(prev => {
-                const newState = { ...prev, selections: { ...prev.selections, mealPlan: { mealPlan: option.val, cost: option.cost } } };
-                const seatExtra = Number(newState.selections.seatExtra) || 0;
-                const addonsTotal = (newState.selections.addons || []).reduce((sum, a) => sum + Number(a.cost), 0);
-                const basePrice = Number(newState.basePrice) || 0;
-                const transportCost = Number(newState.selections.transport.cost) || 0;
-                const stayCost = Number(newState.selections.stay.cost) || 0;
-                const mealCost = Number(newState.selections.mealPlan.cost) || 0;
-                
-                const totalCost = basePrice + transportCost + seatExtra + addonsTotal + stayCost + mealCost;
-                
-                const carbonVal = newState.carbonScore || 0;
-                const carbonEmoji = carbonVal >= 70 ? '🔴' : carbonVal >= 30 ? '🟡' : '🟢';
-                const carbonBadge = carbonVal <= 20 ? '\n🏅 Green Traveler Badge Earned!' : '';
-                
-                const addonsList = (newState.selections.addons || []).map(a => `  • ${a.name} (₹${a.cost})`).join('\n');
-                
-                const summary = `📋 ━━━ BOOKING SUMMARY ━━━\n\n` +
-                    `📍 Destination Base: ₹${basePrice}\n` +
-                    `🚀 Transport: ${newState.selections.transport.name} (₹${transportCost})\n` +
-                    `💺 Seat: ${newState.selections.seat}${seatExtra > 0 ? ` (+₹${seatExtra})` : ''}\n` +
-                    (addonsList ? `🧳 Add-ons:\n${addonsList}\n` : '') +
-                    `🏨 Stay: ${newState.selections.stay.name} (₹${newState.selections.stay.cost})\n` +
-                    `🍽️ Food: ${newState.selections.foodPref} — ${newState.selections.mealPlan.mealPlan} (₹${newState.selections.mealPlan.cost})\n` +
-                    `\n${carbonEmoji} Carbon Footprint Score: ${carbonVal}/100${carbonBadge}\n` +
-                    `\n💰 ━━━ Total Cost: ₹${totalCost} ━━━`;
+            const newState = { ...postBookingFlow, selections: { ...postBookingFlow?.selections, mealPlan: { mealPlan: option.val, cost: option.cost } } };
+            const seatExtra = Number(newState.selections?.seatExtra) || 0;
+            const addonsTotal = (newState.selections?.addons || []).reduce((sum, a) => sum + Number(a.cost), 0);
+            const basePrice = Number(newState.basePrice) || 0;
+            const transportCost = (Number(newState.selections?.transport?.cost) || Number(newState.selections?.transport?.price) || 0) * totalMultipliers;
+            const stayCost = Number(newState.selections?.stay?.cost) || 0;
+            const mealCost = (Number(newState.selections?.mealPlan?.cost) || 0) * totalMultipliers;
+            
+            const totalCost = basePrice + transportCost + seatExtra + addonsTotal + stayCost + mealCost;
+            newState.totalCost = totalCost;
+            
+            setPostBookingFlow(newState);
+            
+            const carbonVal = newState.carbonScore || 0;
+            const carbonEmoji = carbonVal >= 70 ? '🔴' : carbonVal >= 30 ? '🟡' : '🟢';
+            const carbonBadge = carbonVal <= 20 ? '\n🏅 Green Traveler Badge Earned!' : '';
+            
+            const addonsList = (newState.selections?.addons || []).map(a => `  • ${a.name} (₹${a.cost})`).join('\n');
+            
+            const summary = `📋 ━━━ BOOKING SUMMARY ━━━\n\n` +
+                `📍 Destination Base: ₹${basePrice}\n` +
+                `👥 Traveler Profile: ${getTravelerType(travelers)} (${travelers.length} traveler(s))\n` +
+                `🚀 Transport: ${newState.selections?.transport?.name} (₹${transportCost.toLocaleString()})\n` +
+                `💺 Seat: ${newState.selections?.seat}${seatExtra > 0 ? ` (+₹${seatExtra})` : ''}\n` +
+                (addonsList ? `🧳 Add-ons:\n${addonsList}\n` : '') +
+                `🏨 Stay: ${newState.selections?.stay?.name} (₹${stayCost.toLocaleString()})\n` +
+                `🍽️ Food: ${newState.selections?.foodPref} — ${newState.selections?.mealPlan?.mealPlan} (₹${mealCost.toLocaleString()})\n` +
+                `\n${carbonEmoji} Carbon Footprint Score: ${carbonVal}/100${carbonBadge}\n` +
+                `\n💰 ━━━ Total Cost: ₹${totalCost.toLocaleString()} ━━━`;
 
-                setMessages(m => [...m, { text: summary, sender: 'bot' }]);
-                setMessages(m => [...m, {
-                    text: 'Do you want to proceed with payment?',
-                    sender: 'bot',
-                    options: [{label: '✅ Yes, Pay Now', val: 'Yes'}, {label: '❌ No, Save for Later', val: 'No'}],
-                    step: 'payment_confirm'
-                }]);
-                return { ...newState, totalCost };
+            setMessages(m => {
+                // Prevent duplicate rendering
+                if (m.length > 0 && m[m.length - 1].text && m[m.length - 1].text.includes('BOOKING SUMMARY')) {
+                    return m;
+                }
+                return [...m, 
+                    { text: summary, sender: 'bot' },
+                    {
+                        text: 'Do you want to proceed with payment?',
+                        sender: 'bot',
+                        options: [{label: '✅ Yes, Pay Now', val: 'Yes'}, {label: '❌ No, Save for Later', val: 'No'}],
+                        step: 'payment_confirm'
+                    }
+                ];
             });
         }
 
@@ -807,8 +1462,8 @@ const Chatbot = ({ addToCart }) => {
                             }
                         },
                         prefill: {
-                            name: formData.name || '',
-                            email: formData.email || '',
+                            name: travelers[0]?.name || '',
+                            email: travelers[0]?.email || '',
                         },
                         theme: { color: '#10b981' }
                     };
@@ -829,12 +1484,38 @@ const Chatbot = ({ addToCart }) => {
     const finalizeBooking = async (flowState) => {
         try {
             const payload = {
-                transport: flowState.selections.transport,
+                transport: flowState.selections.transport ? {
+                    ...flowState.selections.transport,
+                    price: (Number(flowState.selections.transport.cost) || Number(flowState.selections.transport.price) || 0) * totalMultipliers
+                } : null,
                 stay: flowState.selections.stay,
-                food: flowState.selections.foodPref ? { preference: flowState.selections.foodPref, mealPlan: flowState.selections.mealPlan.mealPlan, cost: flowState.selections.mealPlan.cost } : null,
+                food: flowState.selections.foodPref ? {
+                    preference: flowState.selections.foodPref,
+                    mealPlan: flowState.selections.mealPlan.mealPlan,
+                    cost: (Number(flowState.selections.mealPlan.cost) || 0) * totalMultipliers
+                } : null,
                 totalCost: flowState.totalCost,
-                payment: flowState.selections.paymentMethod ? { method: flowState.selections.paymentMethod, amount: flowState.selections.paymentAmount, status: 'Success' } : null,
-                review: flowState.selections.reviewRating ? { rating: flowState.selections.reviewRating, comment: flowState.selections.reviewComment } : null
+                payment: flowState.selections.paymentMethod ? { method: flowState.selections.paymentMethod, amount: flowState.totalCost, status: 'Success' } : null,
+                review: flowState.selections.reviewRating ? { rating: flowState.selections.reviewRating, comment: flowState.selections.reviewComment } : null,
+                travelers: travelers.map(t => ({
+                    name: t.name,
+                    age: parseInt(t.age) || 0,
+                    gender: t.gender,
+                    mobile: t.mobile,
+                    email: t.email,
+                    ageCategory: getAgeCategory(t.age),
+                    profileType: getTravelerProfile(t),
+                    specialRequirements: t.specialRequirements
+                })),
+                travelerType: getTravelerType(travelers),
+                pricingBreakdown: {
+                    basePrice: flowState.basePrice / totalMultipliers,
+                    totalMultipliers: totalMultipliers,
+                    finalBasePrice: flowState.basePrice,
+                    transportCost: (Number(flowState.selections.transport?.cost) || Number(flowState.selections.transport?.price) || 0) * totalMultipliers,
+                    stayCost: Number(flowState.selections.stay?.cost) || 0,
+                    foodCost: (Number(flowState.selections.mealPlan?.cost) || 0) * totalMultipliers
+                }
             };
             await axios.put(`/api/bookings/${flowState.bookingId}/complete`, payload);
             setPendingBookings(prev => [...prev, flowState.bookingId]);
@@ -843,11 +1524,74 @@ const Chatbot = ({ addToCart }) => {
         }
     };
 
+    const handleExternalFileUpload = (e, field) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setExternalBookingData(prev => ({ ...prev, [field]: reader.result }));
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const submitExternalBooking = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const config = (token && token !== 'null' && token !== 'undefined') ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            const payload = {
+                name: currentUser === 'guest' ? 'Guest User' : currentUser,
+                email: 'external@booking.com',
+                travelDate: new Date(),
+                numberOfPeople: 1,
+                fromCity: originCity || 'Unknown',
+                destination: bookingChoice._id || bookingChoice.id || 'dynamic_' + Date.now(),
+                destinationObj: (!bookingChoice._id || bookingChoice._id.toString().startsWith('dynamic_')) ? bookingChoice : null,
+                externalBooking: true,
+                pnr: externalBookingData.pnr,
+                bookingReference: externalBookingData.bookingReference,
+                ticketData: externalBookingData.ticketFile,
+                screenshotData: externalBookingData.screenshotFile,
+                status: 'Confirmed',
+                paymentStatus: 'Success',
+                totalCost: bookingChoice.price
+            };
+            
+            await axios.post('/api/bookings', payload, config);
+            
+            setPostExternalBooking(false);
+            setBookingChoice(null);
+            setExternalBookingData({ pnr: '', bookingReference: '', ticketFile: '', screenshotFile: '', showForm: false });
+            
+            setMessages(prev => [...prev, { text: '🎉 Amazing! Your external booking details have been successfully saved to your My Trips dashboard!', sender: 'bot' }]);
+            
+        } catch (err) {
+            console.error('Failed to submit external booking', err);
+            alert('Failed to save external booking details. Please try again.');
+        }
+    };
+    
+    const submitCommunityPlace = async (e) => {
+        e.preventDefault();
+        try {
+            const token = localStorage.getItem('token');
+            const config = (token && token !== 'null' && token !== 'undefined') ? { headers: { Authorization: `Bearer ${token}` } } : {};
+            await axios.post('/api/community/submit', communityFormData, config);
+            setShowCommunityModal(false);
+            setCommunityFormData({ placeName: '', description: '', category: 'hidden-gem', location: '', image: null });
+            setMessages(prev => [...prev, { text: '🌟 Thank you for submitting a hidden gem! Our AI will learn from it once it is approved.', sender: 'bot' }]);
+        } catch (err) {
+            console.error('Failed to submit community place', err);
+            alert('Failed to submit. Please log in or try again.');
+        }
+    };
+
     return (
-        <div style={{ display: 'flex', gap: '20px', width: '100%', height: 'calc(100vh - 100px)' }}>
+        <div className="flex-responsive" style={{ gap: '20px', width: '100%', height: 'calc(100vh - 100px)' }}>
             {/* ChatGPT-style Saved Chats left sidebar */}
             <div className="admin-sidebar" style={{ 
-                flex: '0 0 260px', 
+                flex: '1 1 260px', 
+                maxWidth: '260px',
+                minWidth: '260px',
                 display: 'flex', 
                 flexDirection: 'column', 
                 background: 'rgba(15, 23, 42, 0.98)', 
@@ -885,6 +1629,30 @@ const Chatbot = ({ addToCart }) => {
                     <Plus size={18} /> New Chat
                 </button>
 
+                <button 
+                    onClick={() => setShowCommunityModal(true)}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '10px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: 'var(--accent)',
+                        color: 'black',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s',
+                        marginBottom: '15px',
+                        width: '100%'
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.02)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}
+                >
+                    🌍 Submit Hidden Gem
+                </button>
+
                 {/* Search Box */}
                 <div style={{ position: 'relative', marginBottom: '15px' }}>
                     <Search size={16} style={{ position: 'absolute', left: '10px', top: '12px', color: 'rgba(255, 255, 255, 0.4)' }} />
@@ -904,6 +1672,103 @@ const Chatbot = ({ addToCart }) => {
                             outline: 'none'
                         }}
                     />
+                </div>
+
+                <div style={{ marginBottom: '15px', padding: '15px', borderRadius: '18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <div>
+                            <div style={{ color: 'var(--text-main)', fontWeight: '700', marginBottom: '4px' }}>Voice Assistant</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{voiceSettings.speakerOn ? 'Speaker ON' : 'Speaker OFF'}</div>
+                        </div>
+                        <button
+                            className="btn"
+                            onClick={handleSpeakerToggle}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '10px 14px',
+                                borderRadius: '999px',
+                                background: voiceSettings.speakerOn ? 'rgba(34,197,94,0.12)' : 'rgba(248,113,113,0.12)',
+                                color: 'white',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {voiceSettings.speakerOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                            {voiceSettings.speakerOn ? 'ON' : 'OFF'}
+                        </button>
+                    </div>
+                    <button
+                        className="btn"
+                        onClick={() => setShowVoiceSettings(prev => !prev)}
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            padding: '10px',
+                            borderRadius: '12px',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            background: 'rgba(255,255,255,0.05)',
+                            color: 'white',
+                            fontWeight: '600'
+                        }}
+                    >
+                        <Settings size={16} /> Voice Settings
+                    </button>
+                    {showVoiceSettings && (
+                        <div style={{ marginTop: '15px', display: 'grid', gap: '12px' }}>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    className="btn"
+                                    onClick={() => handleVoicePreferenceChange('voiceGender', 'female')}
+                                    style={{
+                                        flex: 1,
+                                        padding: '10px',
+                                        background: voiceSettings.voiceGender === 'female' ? 'rgba(96,165,250,0.16)' : 'rgba(255,255,255,0.05)',
+                                        border: '1px solid rgba(255,255,255,0.12)',
+                                        color: 'white'
+                                    }}
+                                >Female</button>
+                                <button
+                                    className="btn"
+                                    onClick={() => handleVoicePreferenceChange('voiceGender', 'male')}
+                                    style={{
+                                        flex: 1,
+                                        padding: '10px',
+                                        background: voiceSettings.voiceGender === 'male' ? 'rgba(96,165,250,0.16)' : 'rgba(255,255,255,0.05)',
+                                        border: '1px solid rgba(255,255,255,0.12)',
+                                        color: 'white'
+                                    }}
+                                >Male</button>
+                            </div>
+                            <div style={{ display: 'grid', gap: '8px' }}>
+                                <label style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Speech Speed</label>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    {['Slow', 'Normal', 'Fast'].map(speed => {
+                                        const value = speed === 'Slow' ? 0.9 : speed === 'Fast' ? 1.2 : 1.0;
+                                        const active = voiceSettings.speechSpeed === value;
+                                        return (
+                                            <button
+                                                key={speed}
+                                                className="btn"
+                                                onClick={() => handleVoicePreferenceChange('speechSpeed', value)}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '10px',
+                                                    background: active ? 'rgba(96,165,250,0.16)' : 'rgba(255,255,255,0.05)',
+                                                    border: '1px solid rgba(255,255,255,0.12)',
+                                                    color: 'white'
+                                                }}
+                                            >{speed}</button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Chat History List */}
@@ -1029,7 +1894,150 @@ const Chatbot = ({ addToCart }) => {
                 )}
             </div>
 
-            <div className="glass-panel chatbot-container" style={{ flex: '1', height: '100%', position: 'relative' }}>
+            {(() => {
+                window.renderDestinationBubbleCard = (dest, isTravelCard = false) => {
+                    if (!dest || typeof dest !== 'object') return null;
+                    const title = (isTravelCard ? dest.place_name || dest.name : dest.name || dest.place_name) || 'Destination';
+                    const location = typeof dest.location === 'string' ? dest.location : (dest.location?.name || 'India');
+                    const category = typeof dest.category === 'string' ? dest.category : (Array.isArray(dest.category) ? dest.category.join(', ') : 'Destination');
+                    const rating = typeof dest.rating === 'string' || typeof dest.rating === 'number' ? String(dest.rating) : '4.5';
+                    const reviews = typeof dest.reviews === 'string' ? dest.reviews : (Array.isArray(dest.reviews) ? `${dest.reviews.length} reviews` : 'Popular');
+                    const bestTime = typeof dest.best_time === 'string' ? dest.best_time : (typeof dest.bestTime === 'string' ? dest.bestTime : 'Year-round');
+                    
+                    let weatherText = 'Pleasant, Sunny';
+                    if (dest.weather) {
+                        if (typeof dest.weather === 'string') {
+                            weatherText = dest.weather;
+                        } else if (typeof dest.weather === 'object') {
+                            weatherText = `${dest.weather.temperature || '25-30°C'}, ${dest.weather.condition || 'Sunny'}`;
+                        }
+                    }
+
+                    const description = typeof dest.description === 'string' ? dest.description : String(dest.description || '');
+                    
+                    let budgetsToRender = {
+                        "1 day": `₹${Math.round((Number(dest.price) || 8000) * 0.45).toLocaleString('en-IN')}`,
+                        "3 days": `₹${Math.round((Number(dest.price) || 8000) * 1.2).toLocaleString('en-IN')}`,
+                        "1 week": `₹${Math.round((Number(dest.price) || 8000) * 3.1).toLocaleString('en-IN')}`
+                    };
+
+                    if (dest.budgets && typeof dest.budgets === 'object' && !Array.isArray(dest.budgets) && Object.keys(dest.budgets).length > 0) {
+                        const formattedBudgets = {};
+                        for (const [key, val] of Object.entries(dest.budgets)) {
+                            const label = key.replace(/_/g, ' ');
+                            if (typeof val === 'object' && val !== null) {
+                                formattedBudgets[label] = val.total ? `₹${val.total}` : (val.cost ? `₹${val.cost}` : JSON.stringify(val));
+                            } else {
+                                formattedBudgets[label] = String(val);
+                            }
+                        }
+                        if (Object.keys(formattedBudgets).length > 0) {
+                            budgetsToRender = formattedBudgets;
+                        }
+                    }
+
+                    const handleExploreClick = () => {
+                        const baseObj = isTravelCard ? dest : {
+                            place_name: dest.name || 'Destination',
+                            location: location,
+                            category: category,
+                            description: description,
+                            image_url: dest.imageUrl || dest.image_url,
+                            price: dest.price || 5000,
+                            rating: rating,
+                            reviews: reviews,
+                            best_time: bestTime,
+                            weather: weatherText,
+                            entry_fee: dest.entryFee || dest.entry_fee || 'Varies',
+                            map_url: dest.map_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title)}`,
+                            hotels: dest.hotels || [],
+                            foods: dest.foods || [],
+                            nearby_attractions: dest.nearbyAttractions || dest.nearby_attractions || [],
+                            tags: dest.tags || [category],
+                            budgets: budgetsToRender,
+                            itinerary: dest.itinerary || [],
+                            transport_options: dest.transport_options || [],
+                            packing_list: dest.packing_list || [],
+                            _id: dest._id
+                        };
+                        
+                        setDetailPage({
+                            ...baseObj,
+                            place_name: baseObj.place_name || title,
+                            image_url: dest.image_url || dest.imageUrl || 'https://placehold.co/800x500/1e1b4b/a5b4fc?text=Destination',
+                            image_gallery: Array.isArray(dest.image_gallery) ? dest.image_gallery : [dest.image_url || dest.imageUrl || 'https://placehold.co/800x500/1e1b4b/a5b4fc?text=Destination'],
+                            distance: dest.distance || baseObj.distance || 'Varies',
+                            attractions: Array.isArray(dest.attractions) ? dest.attractions : (baseObj.attractions || []),
+                            travel_tips: Array.isArray(dest.travel_tips) ? dest.travel_tips : (baseObj.travel_tips || []),
+                            safety_tips: Array.isArray(dest.safety_tips) ? dest.safety_tips : (baseObj.safety_tips || []),
+                            foods: Array.isArray(dest.foods) ? dest.foods : (baseObj.foods || []),
+                            nearby_attractions: Array.isArray(dest.nearby_attractions) ? dest.nearby_attractions : (baseObj.nearby_attractions || []),
+                            itinerary_1_day: Array.isArray(dest.itinerary_1_day) ? dest.itinerary_1_day : (baseObj.itinerary_1_day || []),
+                            itinerary_2_day: Array.isArray(dest.itinerary_2_day) ? dest.itinerary_2_day : (baseObj.itinerary_2_day || []),
+                            itinerary_3_day: Array.isArray(dest.itinerary_3_day) ? dest.itinerary_3_day : (baseObj.itinerary_3_day || []),
+                            reviews: Array.isArray(dest.reviews) ? dest.reviews : (baseObj.reviews || [])
+                        });
+                    };
+
+                    const imageUrl = isTravelCard ? (dest.image_url || dest.imageUrl) : (dest.imageUrl || dest.image_url);
+
+                    return (
+                        <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(10,15,30,0.85)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)', transition: 'all 0.3s', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            {imageUrl && (
+                                <div style={{ width: '100%', height: '180px', borderRadius: '12px', overflow: 'hidden', marginBottom: '5px' }}>
+                                    <img src={imageUrl} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                </div>
+                            )}
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '24px', fontWeight: '800', color: 'white' }}>{title}</h3>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '14px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.6' }}>
+                                {description}
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '13px', background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '12px', color: '#e2e8f0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span>🌏</span> <strong>Location:</strong> {location}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span>🏷️</span> <strong>Category:</strong> {category}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span>⭐</span> <strong>Rating:</strong> {rating} ({reviews})
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span>📅</span> <strong>Best Time:</strong> {bestTime}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', gridColumn: 'span 2' }}>
+                                    <span>🌤️</span> <strong>Weather:</strong> {weatherText}
+                                </div>
+                            </div>
+                            <div>
+                                <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                                    💰 Estimated Budgets
+                                </h4>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                                    {Object.entries(budgetsToRender).map(([days, cost]) => (
+                                        <span key={days} style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '4px 12px', borderRadius: '20px', fontSize: '13px', color: '#e2e8f0' }}>
+                                            {days.replace(/_/g, ' ')}: <strong style={{ color: '#10b981' }}>{typeof cost === 'object' ? JSON.stringify(cost) : String(cost)}</strong>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                            <button
+                                className="btn btn-accent"
+                                style={{ width: '100%', padding: '12px', fontSize: '15px', fontWeight: '700', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', boxShadow: '0 4px 15px rgba(16,185,129,0.35)', transition: 'all 0.2s', cursor: 'pointer', marginTop: '10px' }}
+                                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(16,185,129,0.5)'; }}
+                                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(16,185,129,0.35)'; }}
+                                onClick={handleExploreClick}
+                            >
+                                🗺️ Explore Destination
+                            </button>
+                        </div>
+                    );
+                };
+            })()}
+
+            <div className="glass-panel chatbot-container" style={{ flex: '1', position: 'relative' }}>
                 {detailPage ? (
                     <div style={{ padding: '20px', height: '100%', overflowY: 'auto' }}>
                         <button className="btn" onClick={() => setDetailPage(null)} style={{ marginBottom: '20px', background: 'rgba(255,255,255,0.1)', color: 'white' }}>
@@ -1044,42 +2052,207 @@ const Chatbot = ({ addToCart }) => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
-                            <div className="glass-panel" style={{ padding: '15px', background: 'rgba(255,255,255,0.02)' }}>
-                                <h4 style={{ margin: '0 0 10px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '5px' }}>About</h4>
-                                <p style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: '1.6' }}>{detailPage.description}</p>
-                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '15px' }}>
-                                    {detailPage.tags?.map((tag, i) => <span key={i} style={{ background: 'var(--accent)', color: 'black', padding: '4px 10px', borderRadius: '15px', fontSize: '12px', fontWeight: 'bold' }}>#{tag}</span>)}
+                        <div className="glass-panel" style={{ padding: '20px', background: 'rgba(255,255,255,0.02)', marginBottom: '30px' }}>
+                            <h4 style={{ margin: '0 0 10px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '5px' }}>About</h4>
+                            <p style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: '1.6', margin: 0 }}>{detailPage.description}</p>
+                        </div>
+
+                        {/* Image Gallery */}
+                        {detailPage.image_gallery && detailPage.image_gallery.length > 1 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>📸 Photo Gallery</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
+                                    {detailPage.image_gallery.map((img, i) => (
+                                        <div key={i} style={{ borderRadius: '10px', overflow: 'hidden', height: '120px' }}>
+                                            <img src={img} alt={`${detailPage.place_name} ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s' }}
+                                                onMouseOver={e => e.target.style.transform = 'scale(1.05)'}
+                                                onMouseOut={e => e.target.style.transform = 'scale(1)'}
+                                            />
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                            <div className="glass-panel" style={{ padding: '15px', background: 'rgba(255,255,255,0.02)' }}>
-                                <h4 style={{ margin: '0 0 10px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '5px' }}>Quick Facts</h4>
-                                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px' }}>
-                                    <li><strong>⭐ Rating:</strong> {detailPage.rating} ({detailPage.reviews})</li>
-                                    <li><strong>📅 Best Time:</strong> {detailPage.best_time}</li>
-                                    <li><strong>🌤️ Weather:</strong> {detailPage.weather?.temperature}, {detailPage.weather?.condition}</li>
-                                    <li><strong>🎟️ Entry Fee:</strong> {detailPage.entry_fee || 'Varies'}</li>
-                                    <li><strong>🗺️ Navigation:</strong> <a href={detailPage.map_url} target="_blank" rel="noreferrer" style={{color: 'var(--accent)'}}>Open Google Maps</a></li>
-                                </ul>
+                        )}
+
+                        {/* Key Info Cards */}
+                        <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                            <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>📋 Key Information</h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+                                {[
+                                    { icon: '📍', label: 'Distance', value: detailPage.distance || 'Varies' },
+                                    { icon: '🗓️', label: 'Best Time', value: detailPage.best_time || 'Year-round' },
+                                    { icon: '🎟️', label: 'Entry Fee', value: detailPage.entry_fee || 'Varies' },
+                                    { icon: '⭐', label: 'Rating', value: detailPage.rating || '4.5 / 5' },
+                                    { icon: '💰', label: 'Budget/Day', value: detailPage.budgets?.['1_day'] || detailPage.price ? `₹${detailPage.price?.toLocaleString('en-IN') || ''}` : 'Ask us!' },
+                                    { icon: '🏷️', label: 'Category', value: detailPage.category || 'General' },
+                                ].map((item, i) => (
+                                    <div key={i} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '14px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                        <div style={{ fontSize: '22px', marginBottom: '6px' }}>{item.icon}</div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>{item.label}</div>
+                                        <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-main)' }}>{item.value}</div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
 
-                        {detailPage.image_gallery && detailPage.image_gallery.length > 0 && (
-                            <div style={{ marginBottom: '30px' }}>
-                                <h4 style={{ marginBottom: '10px' }}>📸 Gallery</h4>
-                                <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px' }}>
-                                    {detailPage.image_gallery.map((img, i) => (
-                                        <img key={i} src={img} alt={`Gallery ${i}`} style={{ width: '200px', height: '140px', objectFit: 'cover', borderRadius: '10px', flexShrink: 0 }} />
+                        {/* Top Attractions */}
+                        {detailPage.attractions && detailPage.attractions.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🏛️ Top Attractions</h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {detailPage.attractions.map((a, i) => (
+                                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '10px' }}>
+                                            <span style={{ fontSize: '20px', flexShrink: 0 }}>{a.icon || '🎯'}</span>
+                                            <div>
+                                                <div style={{ fontWeight: '600', color: 'var(--text-main)', marginBottom: '3px' }}>{a.name}</div>
+                                                {a.description && <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{a.description}</div>}
+                                                {a.entry_fee && <div style={{ fontSize: '12px', color: 'var(--accent)', marginTop: '4px' }}>🎟️ {a.entry_fee}</div>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Hotels */}
+                        {detailPage.hotels && detailPage.hotels.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🏨 Recommended Hotels</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
+                                    {detailPage.hotels.map((h, i) => (
+                                        <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '15px' }}>
+                                            <div style={{ fontWeight: '700', color: 'var(--text-main)', marginBottom: '5px' }}>{h.name}</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--accent)', marginBottom: '4px' }}>⭐ {h.rating || 'N/A'} · {h.type || 'Hotel'}</div>
+                                            {h.price_per_night && <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>💰 {h.price_per_night}/night</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Local Food */}
+                        {detailPage.foods && detailPage.foods.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🍽️ Local Food & Cuisine</h4>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                                    {detailPage.foods.map((food, i) => (
+                                        <div key={i} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '20px', padding: '8px 16px', fontSize: '13px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span>{food.icon || '🍴'}</span>
+                                            <span style={{ fontWeight: '600' }}>{food.name || food}</span>
+                                            {food.description && <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>— {food.description}</span>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Travel Tips */}
+                        {detailPage.travel_tips && detailPage.travel_tips.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>💡 Travel Tips</h4>
+                                <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {detailPage.travel_tips.map((tip, i) => (
+                                        <li key={i} style={{ color: 'var(--text-muted)', fontSize: '14px', lineHeight: '1.5' }}>{tip}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* Safety Tips */}
+                        {detailPage.safety_tips && detailPage.safety_tips.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px', borderLeft: '3px solid #f59e0b' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>⚠️ Safety Tips</h4>
+                                <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {detailPage.safety_tips.map((tip, i) => (
+                                        <li key={i} style={{ color: '#fbbf24', fontSize: '14px', lineHeight: '1.5' }}>{tip}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* Nearby Attractions */}
+                        {detailPage.nearby_attractions && detailPage.nearby_attractions.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🗺️ Nearby Attractions</h4>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {detailPage.nearby_attractions.map((place, i) => (
+                                        <span key={i} style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '20px', padding: '6px 14px', fontSize: '13px' }}>
+                                            📍 {typeof place === 'string' ? place : place.name}
+                                            {place.distance && <span style={{ opacity: 0.7 }}> · {place.distance}</span>}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 1/2/3 Day Itinerary Tabs */}
+                        {(detailPage.itinerary_1_day?.length > 0 || detailPage.itinerary_2_day?.length > 0 || detailPage.itinerary_3_day?.length > 0 || detailPage.itinerary?.length > 0) && (
+                            <div style={{ marginBottom: '30px', background: 'rgba(0,0,0,0.2)', borderRadius: '15px', border: '1px solid var(--border)', padding: '20px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px' }}>🗓️ Day-wise Itinerary</h4>
+                                {/* Tab Buttons */}
+                                <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
+                                    {[1,2,3].map(day => {
+                                        const key = day === 1 ? 'itinerary_1_day' : day === 2 ? 'itinerary_2_day' : 'itinerary_3_day';
+                                        const has = detailPage[key]?.length > 0 || detailPage.itinerary?.length > 0;
+                                        return (
+                                            <button key={day} onClick={() => setItineraryTab(day)}
+                                                style={{ padding: '8px 20px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '14px',
+                                                    background: itineraryTab === day ? 'var(--accent)' : 'rgba(255,255,255,0.06)',
+                                                    color: itineraryTab === day ? '#0a0e1a' : 'var(--text-muted)',
+                                                    opacity: has ? 1 : 0.35 }}>
+                                                {day} Day{day > 1 ? 's' : ''}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {/* Tab Content */}
+                                {(() => {
+                                    const key = itineraryTab === 1 ? 'itinerary_1_day' : itineraryTab === 2 ? 'itinerary_2_day' : 'itinerary_3_day';
+                                    const days = detailPage[key]?.length > 0 ? detailPage[key] : detailPage.itinerary;
+                                    return (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {(days || []).map((dayPlan, i) => (
+                                                <div key={i} style={{ padding: '15px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', borderLeft: '3px solid var(--accent)' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                                        <strong style={{ color: 'var(--accent)', fontSize: '15px' }}>Day {dayPlan.day || i+1}</strong>
+                                                        {dayPlan.title && <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--text-main)' }}>{dayPlan.title}</span>}
+                                                    </div>
+                                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)', lineHeight: '1.7' }}>
+                                                        {(dayPlan.activities || []).map((act, idx) => <li key={idx} style={{ marginBottom: '6px' }}>{act}</li>)}
+                                                    </ul>
+                                                    {dayPlan.meals && <div style={{ marginTop: '8px', fontSize: '12px', color: '#fbbf24' }}>🍽️ {Array.isArray(dayPlan.meals) ? dayPlan.meals.join(' · ') : dayPlan.meals}</div>}
+                                                    {dayPlan.accommodation && <div style={{ fontSize: '12px', color: '#a5b4fc' }}>🏨 {dayPlan.accommodation}</div>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        )}
+
+                        {/* Guest Reviews */}
+                        {detailPage.reviews && Array.isArray(detailPage.reviews) && detailPage.reviews.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
+                                <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>⭐ Guest Reviews</h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {detailPage.reviews.map((rev, i) => (
+                                        <div key={i} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '15px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                                <strong style={{ color: 'var(--text-main)' }}>{rev.reviewer || rev.name || 'Traveler'}</strong>
+                                                <span style={{ color: '#fbbf24', fontSize: '14px' }}>{'⭐'.repeat(Math.round(rev.rating || 5))}</span>
+                                            </div>
+                                            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-muted)', lineHeight: '1.5' }}>{rev.comment || rev.text}</p>
+                                        </div>
                                     ))}
                                 </div>
                             </div>
                         )}
 
                         <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
-                            <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>📡 Real-Time Live Data</h4>
+                            <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🌤️ Weather Information</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
-                                    <h5 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>🌤️ Live Weather</h5>
+                                    <h5 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>Live Weather</h5>
                                     {realtimeData ? (
                                         <div style={{ fontSize: '15px' }}>
                                             <p style={{ margin: '5px 0' }}><strong>Temperature:</strong> {realtimeData.temp}°C</p>
@@ -1088,23 +2261,10 @@ const Chatbot = ({ addToCart }) => {
                                     ) : <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Fetching live weather...</p>}
                                 </div>
                                 <div>
-                                    <h5 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>🚗 Distance & Time Calculator</h5>
-                                    <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Enter Origin City..." 
-                                            value={originCity}
-                                            onChange={e => setOriginCity(e.target.value)}
-                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }}
-                                        />
-                                        <button className="btn btn-accent" onClick={calculateDistance} style={{ padding: '8px 15px' }}>Calculate</button>
-                                    </div>
-                                    {routeData && (
-                                        <div style={{ fontSize: '15px', background: 'rgba(16, 185, 129, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                                            <p style={{ margin: '0 0 5px 0', color: 'var(--text-main)' }}><strong>Distance:</strong> {routeData.distance} km</p>
-                                            <p style={{ margin: 0, color: 'var(--text-main)' }}><strong>Est. Travel Time:</strong> {routeData.time} Hours</p>
-                                        </div>
-                                    )}
+                                    <h5 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>General Weather Forecast</h5>
+                                    <p style={{ margin: 0, fontSize: '15px', color: 'var(--text-muted)' }}>
+                                        {typeof detailPage.weather === 'string' ? detailPage.weather : `${detailPage.weather?.temperature || 'Pleasant'}, ${detailPage.weather?.condition || 'Sunny'}`}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -1125,134 +2285,44 @@ const Chatbot = ({ addToCart }) => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px', marginBottom: '30px' }}>
-                            <div className="glass-panel" style={{ padding: '15px' }}>
-                                <h4 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>🗺️ Attractions</h4>
-                                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                    {detailPage.nearby_attractions?.map((a, i) => <li key={i}>{a}</li>) || <li>No data</li>}
-                                </ul>
+                        {/* Official Tourism Website Explore Link */}
+                        <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px', background: 'rgba(255,255,255,0.02)' }}>
+                            <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🔗 Official Tourism & Information Website</h4>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px', marginTop: '15px' }}>
+                                <a 
+                                    href={detailPage.explore_links?.tourism_website || `https://en.wikipedia.org/wiki/${encodeURIComponent(detailPage.place_name)}`} 
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    className="btn btn-accent" 
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', textDecoration: 'none', borderRadius: '10px', fontWeight: 'bold' }}
+                                >
+                                    🏛️ Visit Official Tourism Site
+                                </a>
+                                <a 
+                                    href={detailPage.explore_links?.google_maps || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(detailPage.place_name)}`} 
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    className="btn" 
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: 'rgba(59,130,246,0.2)', color: '#60a5fa', textDecoration: 'none', borderRadius: '10px', fontWeight: 'bold' }}
+                                >
+                                    🗺️ View on Google Maps
+                                </a>
                             </div>
-                            <div className="glass-panel" style={{ padding: '15px' }}>
-                                <h4 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>🏨 Hotels</h4>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {detailPage.hotels?.map((h, i) => {
-                                        const hotelName = typeof h === 'string' ? h : h.name;
-                                        return (
-                                        <div key={i} 
-                                            style={{
-                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                                padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)',
-                                                border: '1px solid rgba(255,255,255,0.04)', fontSize: '13px', color: 'var(--text-muted)'
-                                            }}>
-                                            <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>{hotelName}</span>
-                                            <button 
-                                                onClick={() => setExpandedHotel(hotelName)}
-                                                style={{
-                                                    background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent)', border: 'none',
-                                                    padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px',
-                                                    fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px',
-                                                    transition: 'all 0.2s'
-                                                }}
-                                                onMouseEnter={e => e.target.style.background = 'rgba(16, 185, 129, 0.2)'}
-                                                onMouseLeave={e => e.target.style.background = 'rgba(16, 185, 129, 0.1)'}>
-                                                💬 Reviews
-                                            </button>
-                                        </div>
-                                    )})}
-                                </div>
-                            </div>
-                            <div className="glass-panel" style={{ padding: '15px' }}>
-                                <h4 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>🍛 Restaurants</h4>
-                                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                    {detailPage.foods?.map((f, i) => <li key={i}>{f}</li>)}
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '30px' }}>
-                            {detailPage.transport_options && detailPage.transport_options.length > 0 && (
-                                <div className="glass-panel" style={{ padding: '20px' }}>
-                                    <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🚆 Transport Suggestions</h4>
-                                    <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                        {detailPage.transport_options.map((t, i) => <li key={i} style={{ marginBottom: '8px' }}>{t}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-
-                            {detailPage.packing_list && detailPage.packing_list.length > 0 && (
-                                <div className="glass-panel" style={{ padding: '20px' }}>
-                                    <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🧳 Smart Packing List</h4>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {detailPage.packing_list.map((item, i) => (
-                                            <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '15px', color: 'var(--text-main)' }}>
-                                                <input type="checkbox" style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }} /> {item}
-                                            </label>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {detailPage.estimated_costs ? (
-                                <div className="glass-panel" style={{ padding: '20px', gridColumn: 'span 3' }}>
-                                    <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px', fontSize: '18px', color: 'var(--text-main)' }}>💰 Real Travel Budget Calculator</h4>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                        {['low_budget', 'high_budget'].map((tier) => (
-                                            <div key={tier} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '15px' }}>
-                                                <h5 style={{ textTransform: 'capitalize', color: 'var(--accent)', fontSize: '16px', margin: '0 0 15px 0', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
-                                                    {tier.replace('_', ' ')} Estimate
-                                                </h5>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                                    {Object.entries(detailPage.estimated_costs[tier]).filter(([k]) => k !== 'total').map(([item, cost]) => (
-                                                        <div key={item} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                            <span style={{ textTransform: 'capitalize' }}>{item === 'taxes' ? 'Taxes & Fees (18%)' : item}</span>
-                                                            <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>₹{cost}</span>
-                                                        </div>
-                                                    ))}
-                                                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', margin: '5px 0' }}></div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '18px', fontWeight: 'bold', color: 'var(--accent)' }}>
-                                                        <span>Total Trip Budget</span>
-                                                        <span>₹{detailPage.estimated_costs[tier].total}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            ) : detailPage.budget_breakdown && (
-                                <div className="glass-panel" style={{ padding: '20px' }}>
-                                    <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>📊 Budget Breakdown</h4>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                        {Object.entries(detailPage.budget_breakdown).map(([category, percent]) => (
-                                            <div key={category}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', fontSize: '14px', textTransform: 'capitalize' }}>
-                                                    <span>{category}</span>
-                                                    <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{percent}%</span>
-                                                </div>
-                                                <div style={{ width: '100%', background: 'rgba(255,255,255,0.1)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
-                                                    <div style={{ width: `${percent}%`, background: 'var(--accent)', height: '100%', borderRadius: '4px' }}></div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
                         </div>
 
                         {detailPage.itinerary && detailPage.itinerary.length > 0 && (
                             <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '15px', border: '1px solid var(--border)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                                    <h3 style={{ margin: 0, color: 'var(--text-main)', borderBottom: '2px solid var(--accent)', paddingBottom: '10px', display: 'inline-block' }}>🗓️ Animated Day-wise Itinerary</h3>
-                                    <button className="btn btn-accent" onClick={() => exportToPDF('detail-itinerary', `${detailPage.place_name}_Itinerary`)} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 15px', fontSize: '13px' }}>
-                                        <Download size={16}/> Export to PDF
-                                    </button>
+                                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px' }}>
+                                        🗓️ Suggested Day-wise Itinerary
+                                    </h4>
                                 </div>
-                                <div id="detail-itinerary" className="itinerary-timeline" style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', paddingLeft: '30px', borderLeft: '3px dashed var(--accent)', background: 'rgba(0,0,0,0.1)', padding: '20px', borderRadius: '10px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     {detailPage.itinerary.map((dayPlan, i) => (
-                                        <div key={i} className="glass-panel day-card" style={{ padding: '20px', position: 'relative', borderRadius: '12px', animation: `fadeInUp 0.6s ease-out ${i * 0.15}s both`, boxShadow: '0 4px 15px rgba(0,0,0,0.3)' }}>
-                                            <div style={{ position: 'absolute', left: '-42px', top: '25px', width: '20px', height: '20px', borderRadius: '50%', background: 'var(--accent)', border: '4px solid var(--bg-main)', boxShadow: '0 0 10px var(--accent)' }}></div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '10px' }}>
-                                                <strong style={{ color: 'var(--accent)', fontSize: '18px', textTransform: 'uppercase', letterSpacing: '1px' }}>Day {dayPlan.day}</strong>
-                                                <span style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--text-main)' }}>{dayPlan.title || 'Explore & Experience'}</span>
+                                        <div key={i} style={{ padding: '15px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: '3px solid var(--accent)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                                <strong style={{ color: 'var(--accent)', fontSize: '15px' }}>Day {dayPlan.day}</strong>
+                                                <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--text-main)' }}>{dayPlan.title}</span>
                                             </div>
                                             <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '15px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
                                                 {dayPlan.activities?.map((act, idx) => <li key={idx} style={{ marginBottom: '8px' }}>{act}</li>)}
@@ -1274,11 +2344,431 @@ const Chatbot = ({ addToCart }) => {
                                     : budgetNumbers.length === 1
                                         ? budgetNumbers[0]
                                         : Math.round((budgetNumbers[0] + budgetNumbers[1]) / 2);
-                                setBookingForm({ destination: { ...detailPage, name: detailPage.place_name, price: calculatedPrice, _id: 'dynamic_' + Date.now() } });
-                                setDetailPage(null);
+                                setBookingChoice({ ...detailPage, name: detailPage.place_name, price: calculatedPrice, _id: 'dynamic_' + Date.now() });
                             }}>
                             💳 Proceed to Book
                         </button>
+
+                        {/* Booking Choice Modal */}
+                        {bookingChoice && !showExternalLinks && (
+                            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+                                <div className="glass-panel" style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '30px', borderRadius: '20px', maxWidth: '700px', width: '100%', position: 'relative' }}>
+                                    <button onClick={() => setBookingChoice(null)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}>✖</button>
+                                    <h3 style={{ margin: '0 0 20px 0', textAlign: 'center', fontSize: '22px', color: 'white' }}>
+                                        Great choice! How would you like to book your trip to {bookingChoice.name}?
+                                    </h3>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                        {/* Internal Booking Option */}
+                                        <div style={{ border: '2px solid var(--accent)', borderRadius: '15px', padding: '25px', display: 'flex', flexDirection: 'column', gap: '15px', background: 'rgba(16, 185, 129, 0.05)' }}>
+                                            <div style={{ fontSize: '40px', textAlign: 'center' }}>🤖</div>
+                                            <h4 style={{ margin: 0, textAlign: 'center', fontSize: '18px', color: 'white' }}>Book on Our Website</h4>
+                                            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <li>Complete booking inside my platform</li>
+                                                <li>AI-generated itinerary</li>
+                                                <li>Booking history</li>
+                                                <li>Saved trips</li>
+                                                <li>Budget tracking</li>
+                                                <li>Travel companion support</li>
+                                                <li>Download itinerary PDF</li>
+                                            </ul>
+                                            <button className="btn btn-accent" style={{ width: '100%', padding: '12px', fontSize: '16px', fontWeight: 'bold' }} onClick={() => {
+                                                setBookingForm({ destination: bookingChoice });
+                                                setBookingChoice(null);
+                                                setDetailPage(null);
+                                            }}>
+                                                Continue Booking
+                                            </button>
+                                        </div>
+                                        {/* External Links Option */}
+                                        <div style={{ border: '1px solid rgba(255,255,255,0.1)', borderRadius: '15px', padding: '25px', display: 'flex', flexDirection: 'column', gap: '15px', background: 'rgba(255,255,255,0.02)' }}>
+                                            <div style={{ fontSize: '40px', textAlign: 'center' }}>🌍</div>
+                                            <h4 style={{ margin: 0, textAlign: 'center', fontSize: '18px', color: 'white' }}>Official Booking Websites</h4>
+                                            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <li>Fill your details once</li>
+                                                <li>Saved to your booking history</li>
+                                                <li>Choose from real providers</li>
+                                                <li>Real-time availability & discounts</li>
+                                            </ul>
+                                            <button className="btn" style={{ width: '100%', padding: '12px', fontSize: '16px', fontWeight: 'bold', background: 'rgba(255,255,255,0.1)', color: 'white', border: 'none' }} onClick={() => { setOfficialBookingStep('form'); setShowExternalLinks(true); }}>
+                                                Fill Details & Choose Provider
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* External Links Modal - Two Step: Form → Providers */}
+                        {showExternalLinks && bookingChoice && (
+                            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+                                <div className="glass-panel" style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '30px', borderRadius: '20px', maxWidth: '640px', width: '100%', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+                                    <button onClick={() => { setShowExternalLinks(false); setBookingChoice(null); }} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}>✖</button>
+
+                                    {officialBookingStep === 'form' ? (
+                                        <>
+                                            <h3 style={{ margin: '0 0 6px 0', textAlign: 'center', fontSize: '22px', color: 'white' }}>
+                                                ✈️ Traveller Details
+                                            </h3>
+                                            <p style={{ margin: '0 0 22px 0', textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
+                                                Your details will be saved before you're redirected to the booking site.
+                                            </p>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                                                {[
+                                                    { label: 'Traveller Name', key: 'name', type: 'text', placeholder: 'Full Name' },
+                                                    { label: 'Age', key: 'age', type: 'number', placeholder: 'Age' },
+                                                ].map(f => (
+                                                    <div key={f.key}>
+                                                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>{f.label}</label>
+                                                        <input type={f.type} placeholder={f.placeholder} value={officialBookingFormData[f.key]} onChange={e => setOfficialBookingFormData(p => ({...p, [f.key]: e.target.value}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                    </div>
+                                                ))}
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Gender</label>
+                                                    <select value={officialBookingFormData.gender} onChange={e => setOfficialBookingFormData(p => ({...p, gender: e.target.value}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }}>
+                                                        <option>Male</option><option>Female</option><option>Other</option>
+                                                    </select>
+                                                </div>
+                                                {[
+                                                    { label: 'Email', key: 'email', type: 'email', placeholder: 'your@email.com' },
+                                                    { label: 'Phone Number', key: 'phone', type: 'tel', placeholder: '+91 XXXXX XXXXX' },
+                                                ].map(f => (
+                                                    <div key={f.key}>
+                                                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>{f.label}</label>
+                                                        <input type={f.type} placeholder={f.placeholder} value={officialBookingFormData[f.key]} onChange={e => setOfficialBookingFormData(p => ({...p, [f.key]: e.target.value}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                    </div>
+                                                ))}
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Departure City</label>
+                                                    <input type="text" placeholder="Bangalore" value={officialBookingFormData.fromCity} onChange={e => setOfficialBookingFormData(p => ({...p, fromCity: e.target.value}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Destination</label>
+                                                    <input type="text" readOnly value={bookingChoice.name} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.05)', color: 'var(--text-main)', cursor: 'not-allowed', boxSizing: 'border-box' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Travel Date</label>
+                                                    <input type="date" value={officialBookingFormData.travelDate} onChange={e => setOfficialBookingFormData(p => ({...p, travelDate: e.target.value}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Return Date</label>
+                                                    <input type="date" value={officialBookingFormData.returnDate} onChange={e => setOfficialBookingFormData(p => ({...p, returnDate: e.target.value}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Adults</label>
+                                                    <input type="number" min="1" max="20" value={officialBookingFormData.adults} onChange={e => setOfficialBookingFormData(p => ({...p, adults: parseInt(e.target.value) || 1}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', textTransform: 'uppercase' }}>Children</label>
+                                                    <input type="number" min="0" max="20" value={officialBookingFormData.children} onChange={e => setOfficialBookingFormData(p => ({...p, children: parseInt(e.target.value) || 0}))} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }} />
+                                                </div>
+                                            </div>
+                                            <button className="btn btn-accent" style={{ width: '100%', padding: '13px', fontSize: '16px', fontWeight: 'bold', marginTop: '8px' }}
+                                                onClick={async () => {
+                                                    try {
+                                                        const token = localStorage.getItem('token');
+                                                        const config = (token && token !== 'null' && token !== 'undefined') ? { headers: { Authorization: `Bearer ${token}` } } : {};
+                                                        const payload = {
+                                                            name: officialBookingFormData.name,
+                                                            age: officialBookingFormData.age,
+                                                            gender: officialBookingFormData.gender,
+                                                            email: officialBookingFormData.email,
+                                                            phone: officialBookingFormData.phone,
+                                                            fromCity: officialBookingFormData.fromCity,
+                                                            toCity: bookingChoice.name,
+                                                            travelDate: officialBookingFormData.travelDate || new Date().toISOString().split('T')[0],
+                                                            returnDate: officialBookingFormData.returnDate,
+                                                            adults: officialBookingFormData.adults,
+                                                            children: officialBookingFormData.children,
+                                                            numberOfPeople: (officialBookingFormData.adults || 1) + (officialBookingFormData.children || 0),
+                                                            destination: bookingChoice._id || bookingChoice.id || 'dynamic_' + Date.now(),
+                                                            destinationObj: (!bookingChoice._id || bookingChoice._id.toString().startsWith('dynamic_')) ? bookingChoice : null,
+                                                            bookingType: 'Official',
+                                                            bookingStatus: 'Redirected',
+                                                            totalCost: bookingChoice.price || 5000,
+                                                            travelers: [{ name: officialBookingFormData.name, age: officialBookingFormData.age, gender: officialBookingFormData.gender, email: officialBookingFormData.email, mobile: officialBookingFormData.phone }]
+                                                        };
+                                                        await axios.post('/api/bookings', payload, config);
+                                                    } catch(err) {
+                                                        console.warn('Official booking pre-save failed:', err.message);
+                                                    }
+                                                    setOfficialBookingStep('providers');
+                                                }}>
+                                                Save & Choose Provider →
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <h3 style={{ margin: '0 0 20px 0', textAlign: 'center', fontSize: '22px', color: 'white' }}>
+                                                Official Providers for {bookingChoice.name}
+                                            </h3>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', maxHeight: '55vh', overflowY: 'auto', paddingRight: '10px' }}>
+                                                {[
+                                                    { label: '✈ Flights', links: [
+                                                        { name: 'IndiGo', url: 'https://www.goindigo.in/' },
+                                                        { name: 'Air India', url: 'https://www.airindia.com/' },
+                                                        { name: 'Akasa Air', url: 'https://www.akasaair.com/' },
+                                                        { name: 'SpiceJet', url: 'https://www.spicejet.com/' },
+                                                    ]},
+                                                    { label: '🚆 Trains / Buses', links: [
+                                                        { name: 'IRCTC', url: 'https://www.irctc.co.in/' },
+                                                        { name: 'RedBus', url: 'https://www.redbus.in/' },
+                                                        { name: 'AbhiBus', url: 'https://www.abhibus.com/' },
+                                                    ]},
+                                                    { label: '🏨 Hotels', links: [
+                                                        { name: 'Booking.com', url: 'https://www.booking.com/' },
+                                                        { name: 'Agoda', url: 'https://www.agoda.com/' },
+                                                        { name: 'Goibibo', url: 'https://www.goibibo.com/' },
+                                                    ]},
+                                                    { label: '🗺️ Full Packages', links: [
+                                                        { name: 'MakeMyTrip', url: 'https://www.makemytrip.com/' },
+                                                        { name: 'Yatra', url: 'https://www.yatra.com/' },
+                                                        { name: 'Cleartrip', url: 'https://www.cleartrip.com/' },
+                                                    ]},
+                                                ].map((section, si) => (
+                                                    <div key={si} style={{ background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '10px' }}>
+                                                        <h4 style={{ margin: '0 0 12px 0', color: 'var(--accent)' }}>{section.label}</h4>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                            {section.links.map((link, li) => (
+                                                                <a key={li} href={link.url} target="_blank" rel="noreferrer"
+                                                                    style={{ display: 'block', padding: '9px 12px', borderRadius: '8px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc', textDecoration: 'none', fontSize: '14px', fontWeight: '600', transition: 'background 0.2s' }}
+                                                                    onMouseOver={e => e.currentTarget.style.background = 'rgba(99,102,241,0.25)'}
+                                                                    onMouseOut={e => e.currentTarget.style.background = 'rgba(99,102,241,0.12)'}>
+                                                                    {link.name} ↗
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                                                <button className="btn" style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.08)', color: 'white', border: 'none' }} onClick={() => setOfficialBookingStep('form')}>← Back to Form</button>
+                                                <button className="btn btn-accent" style={{ flex: 1, padding: '12px' }} onClick={() => { setShowExternalLinks(false); setBookingChoice(null); setPostExternalBooking(true); }}>Done ✓</button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Demo Booking Modal */}
+                        {activeDemoProvider && bookingChoice && (
+                            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px' }}>
+                                <div className="glass-panel" style={{ background: '#0B0F19', border: '1px solid rgba(255,255,255,0.1)', padding: '30px', borderRadius: '20px', maxWidth: '500px', width: '100%', position: 'relative', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+                                    
+                                    {/* Close Button */}
+                                    <button onClick={() => setActiveDemoProvider(null)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: '20px', cursor: 'pointer' }}>✖</button>
+                                    
+                                    {/* Academic Badge */}
+                                    <div style={{ background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.25)', color: '#fbbf24', padding: '10px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        🛡️ Demo Provider - For Academic Project Demonstration
+                                    </div>
+
+                                    {/* Web Browser URL bar */}
+                                    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '6px 12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b' }}>
+                                        <span style={{ color: '#10b981' }}>🔒 Secure</span>
+                                        <span style={{ color: '#334155' }}>|</span>
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>https://www.demo-{activeDemoProvider.name.toLowerCase().replace(/\s+/g, '')}.com/book</span>
+                                    </div>
+
+                                    {/* Screen 1: View Provider Details */}
+                                    {demoBookingStep === 'view' && (
+                                        <div>
+                                            <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', color: 'white', fontWeight: '700' }}>
+                                                {activeDemoProvider.name}
+                                            </h3>
+                                            <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: '#64748b' }}>
+                                                Book your {activeDemoProvider.type === 'flight' ? 'Flight' : 'Stay'} to {bookingChoice.name} with our official partner.
+                                            </p>
+                                            
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', padding: '18px', borderRadius: '12px', marginBottom: '24px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#64748b' }}>Destination:</span>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{bookingChoice.name}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#64748b' }}>Travel Date:</span>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{new Date(demoBookingForm.travelDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#64748b' }}>Price:</span>
+                                                    <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>
+                                                        ₹{getDemoProviderPrice().toLocaleString()} {activeDemoProvider.type === 'hotel' && '/ night'}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                                                    <span style={{ color: '#64748b' }}>Availability:</span>
+                                                    <span style={{ color: '#34d399', fontWeight: '500' }}>
+                                                        🟢 Available (9 {activeDemoProvider.type === 'flight' ? 'seats' : 'rooms'} left)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            
+                                            <button className="btn btn-accent" onClick={() => setDemoBookingStep('form')} style={{ width: '100%', padding: '12px', fontSize: '15px', fontWeight: 'bold' }}>
+                                                Book Now
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Screen 2: Booking Form */}
+                                    {demoBookingStep === 'form' && (
+                                        <form onSubmit={submitDemoBooking} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                            <h3 style={{ margin: '0 0 4px 0', fontSize: '20px', color: 'white', fontWeight: '700' }}>Passenger / Guest Details</h3>
+                                            <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b' }}>Provide information to complete the booking simulation.</p>
+                                            
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '500', textAlign: 'left' }}>Full Name *</label>
+                                                <input 
+                                                    type="text" 
+                                                    required 
+                                                    placeholder="e.g. John Doe"
+                                                    value={demoBookingForm.fullName}
+                                                    onChange={e => setDemoBookingForm({ ...demoBookingForm, fullName: e.target.value })}
+                                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '14px' }} 
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '500', textAlign: 'left' }}>Email Address *</label>
+                                                <input 
+                                                    type="email" 
+                                                    required 
+                                                    placeholder="e.g. john@example.com"
+                                                    value={demoBookingForm.email}
+                                                    onChange={e => setDemoBookingForm({ ...demoBookingForm, email: e.target.value })}
+                                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '14px' }} 
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '500', textAlign: 'left' }}>Mobile Number *</label>
+                                                <input 
+                                                    type="tel" 
+                                                    required 
+                                                    placeholder="e.g. +91 9876543210"
+                                                    value={demoBookingForm.mobile}
+                                                    onChange={e => setDemoBookingForm({ ...demoBookingForm, mobile: e.target.value })}
+                                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '14px' }} 
+                                                />
+                                            </div>
+                                            
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '500', textAlign: 'left' }}>No. of {activeDemoProvider.type === 'flight' ? 'Travelers' : 'Guests'}</label>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1" 
+                                                        required 
+                                                        value={demoBookingForm.travelers}
+                                                        onChange={e => setDemoBookingForm({ ...demoBookingForm, travelers: parseInt(e.target.value) || 1 })}
+                                                        style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '14px' }} 
+                                                    />
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '500', textAlign: 'left' }}>Travel Date</label>
+                                                    <input 
+                                                        type="date" 
+                                                        required 
+                                                        value={demoBookingForm.travelDate}
+                                                        onChange={e => setDemoBookingForm({ ...demoBookingForm, travelDate: e.target.value })}
+                                                        style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'white', fontSize: '14px' }} 
+                                                    />
+                                                </div>
+                                            </div>
+                                            
+                                            <button type="submit" className="btn btn-accent" style={{ width: '100%', padding: '12px', fontSize: '15px', fontWeight: 'bold', marginTop: '10px' }}>
+                                                Confirm Booking
+                                            </button>
+                                        </form>
+                                    )}
+
+                                    {/* Screen 3: Demo Booking Successful */}
+                                    {demoBookingStep === 'success' && demoBookingResult && (
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontSize: '28px', marginBottom: '16px' }}>✓</div>
+                                            
+                                            <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', color: '#34d399', fontWeight: '700' }}>
+                                                Demo Booking Successful
+                                            </h3>
+                                            <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: '#64748b' }}>
+                                                {demoBookingResult.message}
+                                            </p>
+                                            
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', padding: '18px', borderRadius: '12px', textAlign: 'left', marginBottom: '24px', fontSize: '13px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>Demo Booking ID:</span>
+                                                    <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontFamily: 'monospace' }}>{demoBookingResult.id}</span>
+                                                </div>
+                                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', margin: '4px 0' }} />
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>Provider:</span>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{activeDemoProvider.name}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>Destination:</span>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{bookingChoice.name}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>Traveler Name:</span>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{demoBookingResult.fullName}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>Date:</span>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{new Date(demoBookingResult.travelDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: '#64748b' }}>Total Paid:</span>
+                                                    <span style={{ color: '#34d399', fontWeight: '700' }}>₹{demoBookingResult.totalPrice.toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <button className="btn" onClick={() => { setActiveDemoProvider(null); setShowExternalLinks(false); }} style={{ width: '100%', padding: '12px', fontSize: '15px', fontWeight: 'bold', background: 'rgba(255,255,255,0.08)', color: 'white', border: 'none' }}>
+                                                Close & Return
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Post-External Booking Flow */}
+                        {postExternalBooking && bookingChoice && (
+                            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+                                <div className="glass-panel" style={{ background: 'var(--bg-main)', border: '1px solid var(--border)', padding: '30px', borderRadius: '20px', maxWidth: '500px', width: '100%', position: 'relative' }}>
+                                    <button onClick={() => { setPostExternalBooking(false); setBookingChoice(null); }} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}>✖</button>
+                                    <h3 style={{ margin: '0 0 20px 0', textAlign: 'center', fontSize: '22px', color: 'white' }}>
+                                        Have you completed your booking?
+                                    </h3>
+                                    
+                                    {externalBookingData.showForm ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center' }}>Great! Please upload your tickets or provide reference details to save this trip to your dashboard.</p>
+                                            <div className="form-group" style={{ marginBottom: '10px' }}>
+                                                <label>Upload PDF Ticket</label>
+                                                <input type="file" accept="application/pdf" onChange={e => handleExternalFileUpload(e, 'ticketFile')} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: '10px' }}>
+                                                <label>Upload Booking Screenshot</label>
+                                                <input type="file" accept="image/*" onChange={e => handleExternalFileUpload(e, 'screenshotFile')} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: '10px' }}>
+                                                <label>PNR Number</label>
+                                                <input type="text" placeholder="e.g., X1Y2Z3" value={externalBookingData.pnr} onChange={e => setExternalBookingData({...externalBookingData, pnr: e.target.value})} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: '10px' }}>
+                                                <label>Booking Reference Number</label>
+                                                <input type="text" placeholder="e.g., MMT123456" value={externalBookingData.bookingReference} onChange={e => setExternalBookingData({...externalBookingData, bookingReference: e.target.value})} />
+                                            </div>
+                                            <button className="btn btn-accent" onClick={submitExternalBooking} style={{ width: '100%', padding: '12px', marginTop: '10px' }}>
+                                                Save Booking to My Trips
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+                                            <button className="btn btn-accent" onClick={() => setExternalBookingData({...externalBookingData, showForm: true})} style={{ flex: 1, padding: '12px', fontSize: '16px' }}>Yes</button>
+                                            <button className="btn" onClick={() => { setPostExternalBooking(false); setBookingChoice(null); }} style={{ flex: 1, padding: '12px', fontSize: '16px', background: 'rgba(255,255,255,0.1)' }}>No</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
                 <>
@@ -1286,6 +2776,31 @@ const Chatbot = ({ addToCart }) => {
                 {messages.map((msg, i) => (
                     <motion.div key={i} className={`message ${msg.sender}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
                         <p style={{ whiteSpace: 'pre-line' }}>{msg.text}</p>
+                        {msg.image && (
+                            <div style={{ marginTop: '10px' }}>
+                                <img src={msg.image} alt="Uploaded" style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px' }} />
+                            </div>
+                        )}
+                        {msg.sender === 'bot' && msg.text && (
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                                <button
+                                    className="btn"
+                                    style={{
+                                        padding: '8px 12px',
+                                        fontSize: '13px',
+                                        background: 'rgba(255,255,255,0.06)',
+                                        color: 'var(--accent)',
+                                        border: '1px solid rgba(255,255,255,0.12)',
+                                        borderRadius: '999px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onClick={() => handleListenClick(msg.text)}
+                                >
+                                    🔊 Listen
+                                </button>
+                            </div>
+                        )}
                         {msg.options && msg.options.length > 0 && msg.step !== 'stay' && (
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
                                 {msg.options.map((opt, idx) => (
@@ -1325,19 +2840,53 @@ const Chatbot = ({ addToCart }) => {
                             </div>
                         )}
                         {msg.data && msg.data.length > 0 && (
-                            <div className="message-data">
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
                                 {msg.data.map((dest, idx) => (
-                                    <div key={idx} className="dest-card">
-                                        <img src={dest.imageUrl} alt={dest.name} />
-                                        <h4>{dest.name}</h4>
-                                        <p style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                            <MapPin size={14} /> {dest.location}
-                                        </p>
-                                        <p style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: 'var(--accent)', marginTop: '5px' }}>
-                                            <IndianRupee size={14} /> ₹{dest.price} / person
-                                        </p>
+                                    <div key={idx}>
+                                        {window.renderDestinationBubbleCard && window.renderDestinationBubbleCard(dest, false)}
                                     </div>
                                 ))}
+                            </div>
+                        )}
+                        {msg.emergency_steps && msg.emergency_steps.length > 0 && (
+                            <div className="glass-panel" style={{ marginTop: '15px', padding: '20px', borderRadius: '15px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.5)' }}>
+                                <h3 style={{ margin: '0 0 15px 0', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    🚨 Emergency Action Plan
+                                </h3>
+                                <ul style={{ paddingLeft: '20px', margin: '0 0 20px 0', color: 'var(--text-main)', fontSize: '15px' }}>
+                                    {msg.emergency_steps.map((step, idx) => (
+                                        <li key={idx} style={{ marginBottom: '8px' }}>{step}</li>
+                                    ))}
+                                </ul>
+                                {msg.emergency_contacts && (
+                                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '10px' }}>
+                                        <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-muted)' }}>Emergency Contacts</h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+                                            {Object.entries(msg.emergency_contacts).map(([key, val]) => (
+                                                <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
+                                                    <span style={{ textTransform: 'capitalize', fontSize: '12px', color: 'var(--text-muted)' }}>{key}</span>
+                                                    <a href={`tel:${val}`} style={{ color: 'var(--accent)', fontWeight: 'bold', textDecoration: 'none', fontSize: '16px' }}>📞 {val}</a>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {msg.nearby_services && msg.nearby_services.length > 0 && (
+                            <div style={{ marginTop: '15px' }}>
+                                <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-muted)', fontSize: '14px' }}>📍 Nearby Services</h4>
+                                <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px' }}>
+                                    {msg.nearby_services.map((svc, idx) => (
+                                        <div key={idx} className="glass-panel" style={{ minWidth: '160px', padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)' }}>
+                                            <div style={{ fontSize: '20px', marginBottom: '5px' }}>
+                                                {svc.type === 'ATM' ? '🏧' : svc.type === 'Hospital' ? '🏥' : svc.type === 'Fuel' ? '⛽' : '📍'}
+                                            </div>
+                                            <h5 style={{ margin: '0 0 5px 0', fontSize: '14px', color: 'var(--text-main)' }}>{svc.name}</h5>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{svc.distance}</div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                         {msg.itinerary && msg.itinerary.length > 0 && (
@@ -1362,69 +2911,290 @@ const Chatbot = ({ addToCart }) => {
                                 </div>
                             </div>
                         )}
-                        {msg.travel_cards && msg.travel_cards.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '15px' }}>
-                                {msg.travel_cards.map((card, idx) => (
-                                    <div key={idx} className="glass-panel" style={{ padding: '20px', borderRadius: '15px', overflow: 'hidden', border: '1px solid var(--accent)' }}>
-                                        <img src={card.image_url} alt={card.place_name} style={{ width: '100%', height: '250px', objectFit: 'cover', borderRadius: '10px', marginBottom: '15px' }} />
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                            <h3 style={{ margin: 0, fontSize: '22px', color: 'var(--text-main)' }}>{card.place_name}</h3>
-                                            <a href={card.map_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px' }}><MapPin size={16}/> View Map</a>
-                                        </div>
-                                        <p style={{ margin: '0 0 10px 0', fontSize: '15px', color: 'var(--text-muted)' }}>{card.description}</p>
-                                        
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px', background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '10px' }}>
-                                            <div><strong>🌍 Location:</strong> {card.location}</div>
-                                            <div><strong>🏷️ Category:</strong> {card.category}</div>
-                                            <div><strong>⭐ Rating:</strong> {card.rating} ({card.reviews})</div>
-                                            <div><strong>📅 Best Time:</strong> {card.best_time}</div>
-                                            <div><strong>🌤️ Weather:</strong> {card.weather?.temperature}, {card.weather?.condition}</div>
-                                        </div>
+                        {/* Destination Preview Card */}
+                        {msg.action === 'DESTINATION_PREVIEW' && msg.preview_card && (
+                            <div style={{ marginTop: '15px' }}>
+                                {(() => {
+                                    const card = msg.preview_card;
+                                    const title = card.place_name || 'Destination';
+                                    const location = card.location || 'India';
+                                    const category = card.category || 'Destination';
+                                    const rating = card.rating || '4.7';
+                                    const reviewsCount = card.reviews_count || '9000';
+                                    const bestTime = card.best_time || 'Year-round';
+                                    
+                                    let weatherText = 'Pleasant, Sunny';
+                                    let currentWeather = null;
+                                    let weatherForecast = [];
+                                    if (card.weather) {
+                                        if (typeof card.weather === 'string') {
+                                            weatherText = card.weather;
+                                        } else if (typeof card.weather === 'object') {
+                                            if (card.weather.current) {
+                                                currentWeather = card.weather.current;
+                                                weatherText = `${currentWeather.temperature}, ${currentWeather.condition}, Humidity: ${currentWeather.humidity}`;
+                                            } else {
+                                                const temp = card.weather.temperature || '28°C';
+                                                const condition = card.weather.condition || 'Sunny';
+                                                const humidity = card.weather.humidity || '65%';
+                                                weatherText = `${temp}, ${condition}, Humidity: ${humidity}`;
+                                            }
+                                            if (card.weather.forecast && Array.isArray(card.weather.forecast)) {
+                                                weatherForecast = card.weather.forecast;
+                                            }
+                                        }
+                                    }
 
-                                        <h4 style={{ margin: '0 0 10px 0', color: 'var(--accent)' }}>💰 Estimated Budgets</h4>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
-                                            {card.budgets && Object.entries(card.budgets).map(([days, cost]) => (
-                                                <span key={days} style={{ background: 'var(--bg-main)', padding: '5px 12px', borderRadius: '20px', fontSize: '13px', border: '1px solid var(--border)' }}>{days.replace('_', ' ')}: <strong style={{color:'var(--accent)'}}>{cost}</strong></span>
-                                            ))}
-                                        </div>
+                                    const aiDescription = card.ai_description || card.description || '';
+                                    
+                                    let budgetsToRender = {
+                                        "1 day": card.budgets?.['1_day'] || card.budgets?.['1_day'] || `₹${Math.round((Number(card.price) || 5000) * 0.5).toLocaleString('en-IN')}`,
+                                        "3 days": card.budgets?.['3_days'] || card.budgets?.['3_days'] || `₹${Math.round((Number(card.price) || 5000) * 1.5).toLocaleString('en-IN')}`,
+                                        "1 week": card.budgets?.['1_week'] || card.budgets?.['1_week'] || `₹${Math.round((Number(card.price) || 5000) * 3.5).toLocaleString('en-IN')}`
+                                    };
 
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                                            <div>
-                                                <h4 style={{ margin: '0 0 5px 0' }}>🏨 Top Hotels</h4>
-                                                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                                    {card.hotels?.map((h, i) => {
-                                                        const hotelName = typeof h === 'string' ? h : h.name;
-                                                        return <li key={i}>{hotelName}</li>;
-                                                    })}
-                                                </ul>
-                                            </div>
-                                            <div>
-                                                <h4 style={{ margin: '0 0 5px 0' }}>🍛 Local Food</h4>
-                                                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '14px', color: 'var(--text-muted)' }}>
-                                                    {card.foods?.map((f, i) => <li key={i}>{f}</li>)}
-                                                </ul>
-                                            </div>
-                                        </div>
+                                    const handleExploreMore = () => {
+                                        const fullDest = msg.full_destination || card;
+                                        setDetailPage({
+                                            place_name: fullDest.place_name || title,
+                                            location: fullDest.location || location,
+                                            category: fullDest.category || category,
+                                            description: fullDest.description || card.description,
+                                            image_url: fullDest.image_url || card.image_url,
+                                            image_gallery: Array.isArray(fullDest.image_gallery) ? fullDest.image_gallery : (card.image_gallery || [card.image_url]),
+                                            best_time: fullDest.best_time || bestTime,
+                                            weather: fullDest.weather || card.weather,
+                                            distance: fullDest.distance || card.distance,
+                                            price: fullDest.price || card.price,
+                                            rating: fullDest.rating || rating,
+                                            entry_fee: fullDest.entry_fee || 'Varies',
+                                            map_url: fullDest.map_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(title)}`,
+                                            hotels: fullDest.hotels || [],
+                                            foods: fullDest.foods || [],
+                                            nearby_attractions: fullDest.nearby_attractions || card.nearby_attractions || [],
+                                            tags: fullDest.tags || [category],
+                                            budgets: fullDest.budgets || card.budgets,
+                                            itinerary: fullDest.itinerary || [],
+                                            itinerary_1_day: fullDest.itinerary_1_day || [],
+                                            itinerary_2_day: fullDest.itinerary_2_day || [],
+                                            itinerary_3_day: fullDest.itinerary_3_day || [],
+                                            transport_options: fullDest.transport_options || [],
+                                            attractions: fullDest.attractions || card.attractions || [],
+                                            travel_tips: fullDest.travel_tips || [],
+                                            safety_tips: fullDest.safety_tips || [],
+                                            reviews: fullDest.reviews || [],
+                                            packing_list: fullDest.packing_list || []
+                                        });
+                                    };
 
-                                        {card.itinerary && card.itinerary.length > 0 && (
-                                            <div>
-                                                <h4 style={{ margin: '0 0 10px 0', borderBottom: '1px solid var(--border)', paddingBottom: '5px' }}>🗓️ Suggested Itinerary</h4>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                                    {card.itinerary.map((dayPlan, i) => (
-                                                        <div key={i} style={{ padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: '3px solid var(--accent)' }}>
-                                                            <strong style={{ display: 'block', marginBottom: '5px', color: 'var(--text-main)' }}>Day {dayPlan.day}</strong>
-                                                            <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{dayPlan.activities?.join(' • ')}</span>
+                                    const imageUrl = card.image_url;
+
+                                    return (
+                                        <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(10,15,30,0.85)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)', transition: 'all 0.3s', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                                            {/* Hero Image */}
+                                            {imageUrl && (
+                                                <div style={{ width: '100%', height: '220px', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+                                                    <img src={imageUrl} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.8))', padding: '15px' }}>
+                                                        <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '800', color: 'white' }}>{title}</h3>
+                                                        <p style={{ margin: '5px 0 0 0', display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--accent)', fontSize: '14px' }}><MapPin size={16}/> {location}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* AI Generated Description */}
+                                            {aiDescription && (
+                                                <div>
+                                                    <p style={{ margin: 0, fontSize: '15px', color: 'rgba(255,255,255,0.8)', lineHeight: '1.6', fontStyle: 'italic' }}>
+                                                        "{aiDescription}"
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {/* Live Weather */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', padding: '12px', borderRadius: '10px' }}>
+                                                <span style={{ fontSize: '24px' }}>🌤️</span>
+                                                <div>
+                                                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontWeight: '600' }}>LIVE WEATHER</div>
+                                                    <div style={{ fontSize: '15px', color: 'white', fontWeight: '700' }}>{weatherText}</div>
+                                                    {currentWeather && (
+                                                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+                                                            Feels like: {currentWeather.feelsLike} | UV: {currentWeather.uvIndex}
                                                         </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* 7-Day Weather Forecast */}
+                                            {weatherForecast.length > 0 && (
+                                                <div>
+                                                    <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontWeight: '600' }}>
+                                                        📅 7-Day Forecast
+                                                    </h4>
+                                                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '5px' }}>
+                                                        {weatherForecast.map((day, i) => (
+                                                            <div key={i} style={{ 
+                                                                background: 'rgba(255,255,255,0.05)', 
+                                                                padding: '8px 12px', 
+                                                                borderRadius: '8px', 
+                                                                minWidth: '80px',
+                                                                textAlign: 'center',
+                                                                border: '1px solid rgba(255,255,255,0.08)'
+                                                            }}>
+                                                                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>
+                                                                    {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })}
+                                                                </div>
+                                                                <div style={{ fontSize: '16px', marginBottom: '2px' }}>
+                                                                    {day.condition.includes('Sunny') ? '☀️' : day.condition.includes('Rain') ? '🌧️' : day.condition.includes('Cloud') ? '☁️' : '🌤️'}
+                                                                </div>
+                                                                <div style={{ fontSize: '12px', color: 'white', fontWeight: '600' }}>
+                                                                    {day.maxTemp}
+                                                                </div>
+                                                                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>
+                                                                    {day.minTemp}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Quick Facts */}
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '13px' }}>
+                                                <div style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>⭐ RATING</div>
+                                                    <div style={{ color: 'white', fontWeight: '700' }}>{rating} ({reviewsCount} reviews)</div>
+                                                </div>
+                                                <div style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>🗓️ BEST TIME</div>
+                                                    <div style={{ color: 'white', fontWeight: '700' }}>{bestTime}</div>
+                                                </div>
+                                                <div style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>🏷️ CATEGORY</div>
+                                                    <div style={{ color: 'white', fontWeight: '700' }}>{category}</div>
+                                                </div>
+                                                <div style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '4px' }}>⏱️ IDEAL DURATION</div>
+                                                    <div style={{ color: 'white', fontWeight: '700' }}>{card.ideal_duration || '2-3 days'}</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Estimated Budget */}
+                                            <div>
+                                                <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                                                    💰 Estimated Budget
+                                                </h4>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                                                    {Object.entries(budgetsToRender).map(([days, cost]) => (
+                                                        <span key={days} style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '6px 14px', borderRadius: '20px', fontSize: '13px', color: '#e2e8f0' }}>
+                                                            {days.replace(/_/g, ' ')}: <strong style={{ color: '#10b981' }}>{typeof cost === 'object' ? JSON.stringify(cost) : String(cost)}</strong>
+                                                        </span>
                                                     ))}
                                                 </div>
                                             </div>
-                                        )}
-                                        
-                                        <button className="btn btn-accent" style={{ width: '100%', marginTop: '20px' }} onClick={() => setDetailPage(card)}>
-                                            Explore Destination Details
-                                        </button>
+
+                                            {/* Famous For */}
+                                            {card.famous_for && card.famous_for.length > 0 && (
+                                                <div>
+                                                    <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontWeight: '600' }}>
+                                                        ✨ Famous For
+                                                    </h4>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                        {card.famous_for.slice(0, 3).map((item, i) => (
+                                                            <span key={i} style={{ background: 'rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', color: 'rgba(255,255,255,0.8)' }}>
+                                                                {item}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Google Maps Button */}
+                                            {card.embedded_map_url && (
+                                                <button
+                                                    className="btn"
+                                                    style={{ 
+                                                        width: '100%', 
+                                                        padding: '12px', 
+                                                        fontSize: '14px', 
+                                                        fontWeight: '600', 
+                                                        borderRadius: '10px', 
+                                                        display: 'flex', 
+                                                        alignItems: 'center', 
+                                                        justifyContent: 'center', 
+                                                        gap: '8px', 
+                                                        background: 'rgba(66,133,244,0.15)', 
+                                                        border: '1px solid rgba(66,133,244,0.3)', 
+                                                        color: '#4285f4',
+                                                        cursor: 'pointer',
+                                                        marginTop: '5px'
+                                                    }}
+                                                    onClick={() => window.open(card.embedded_map_url || card.map_url, '_blank')}
+                                                >
+                                                    🗺️ View on Google Maps
+                                                </button>
+                                            )}
+
+                                            {/* Explore More Button */}
+                                            <button
+                                                className="btn btn-accent"
+                                                style={{ width: '100%', padding: '14px', fontSize: '16px', fontWeight: '700', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', boxShadow: '0 4px 15px rgba(16,185,129,0.35)', transition: 'all 0.2s', cursor: 'pointer', marginTop: '5px' }}
+                                                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(16,185,129,0.5)'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(16,185,129,0.35)'; }}
+                                                onClick={handleExploreMore}
+                                            >
+                                                🗺️ EXPLORE MORE
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        )}
+                        {msg.travel_cards && msg.travel_cards.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '15px' }}>
+                                {msg.travel_cards.map((card, idx) => (
+                                    <div key={idx}>
+                                        {window.renderDestinationBubbleCard && window.renderDestinationBubbleCard(card, true)}
                                     </div>
                                 ))}
+                            </div>
+                        )}
+
+                        {/* Related Places Chips */}
+                        {msg.related_places && msg.related_places.length > 0 && (
+                            <div style={{ marginTop: '16px', padding: '15px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🗺️ Related Places You Might Love</p>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {msg.related_places.map((place, pi) => {
+                                        const placeName = typeof place === 'string' ? place : (place.name || place.title || place.place_name || '');
+                                        return (
+                                            <button
+                                                key={pi}
+                                                type="button"
+                                                onClick={() => handleSend(placeName)}
+                                                title={typeof place === 'object' ? place.description || place.title || '' : ''}
+                                                style={{
+                                                    padding: '7px 14px',
+                                                    borderRadius: '20px',
+                                                    border: '1px solid rgba(16,185,129,0.3)',
+                                                    background: 'rgba(16,185,129,0.08)',
+                                                    color: 'var(--accent)',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px'
+                                                }}
+                                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.18)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.08)'; e.currentTarget.style.transform = 'none'; }}
+                                            >
+                                                📍 {placeName}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         )}
                         {msg.showTrips && (
@@ -1536,40 +3306,162 @@ const Chatbot = ({ addToCart }) => {
                     </div>
                 )}
                 {bookingForm && (
-                    <div className="message bot" style={{ padding: '25px', borderRadius: '15px', background: 'rgba(30, 30, 45, 0.95)', border: '1px solid rgba(129, 140, 248, 0.3)', boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)' }}>
+                    <div className="message bot" style={{ padding: '25px', borderRadius: '15px', background: 'rgba(30, 30, 45, 0.95)', border: '1px solid rgba(129, 140, 248, 0.3)', boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)', maxWidth: '600px', width: '100%' }}>
                         <form onSubmit={submitBooking}>
                             <h3 style={{ marginBottom: '20px', fontSize: '20px', color: 'var(--text-main)', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>✈️ Boarding Ticket Booking</h3>
                             
                             <div className="form-group" style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
                                 <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Departure Origin</label>
+                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Departure Origin</label>
                                     <input type="text" placeholder="From (e.g. Bangalore)" required value={formData.fromCity} onChange={e => setFormData({ ...formData, fromCity: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }} />
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Destination</label>
+                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Destination</label>
                                     <input type="text" readOnly value={bookingForm.destination.name} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.05)', color: 'var(--text-main)', cursor: 'not-allowed' }} />
                                 </div>
                             </div>
 
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Full Name</label>
-                                <input type="text" placeholder="e.g. John Doe" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }} />
-                            </div>
-
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Email Address</label>
-                                <input type="email" placeholder="e.g. john@example.com" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }} />
-                            </div>
-
                             <div className="form-group" style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
                                 <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Travel Date</label>
+                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Travel Date</label>
                                     <input type="date" required value={formData.travelDate} onChange={e => setFormData({ ...formData, travelDate: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }} />
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Travelers</label>
-                                    <input type="number" min="1" placeholder="1" required value={formData.numberOfPeople} onChange={e => setFormData({ ...formData, numberOfPeople: e.target.value })} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }} />
+                                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Travelers Count</label>
+                                    <input type="number" min="1" max="10" placeholder="1" required value={formData.numberOfPeople} onChange={e => handleNumPeopleChange(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)' }} />
                                 </div>
+                            </div>
+
+                            {/* Travelers detail array fields */}
+                            <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px', paddingRight: '5px' }}>
+                                {travelers.map((t, idx) => {
+                                    const cat = getAgeCategory(t.age);
+                                    const profile = getTravelerProfile(t);
+                                    const isPrimary = idx === 0;
+                                    return (
+                                        <div key={idx} style={{ padding: '15px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px' }}>
+                                                <div>
+                                                    <strong style={{ fontSize: '13px' }}>👤 Traveler #{idx + 1} {isPrimary && ' (Primary)'}</strong>
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Detected profile: {profile}</div>
+                                                </div>
+                                                <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.15)', color: 'var(--accent)', padding: '1px 6px', borderRadius: '8px' }}>{cat}</span>
+                                            </div>
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                                <input type="text" placeholder="Full Name" required value={t.name} onChange={e => updateTravelerField(idx, 'name', e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }} />
+                                                <input type="number" placeholder="Age" min="0" required value={t.age} onChange={e => updateTravelerField(idx, 'age', e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }} />
+                                            </div>
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                                <select value={t.gender} onChange={e => updateTravelerField(idx, 'gender', e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }}>
+                                                    <option value="Male">Male</option>
+                                                    <option value="Female">Female</option>
+                                                    <option value="Other">Other</option>
+                                                </select>
+                                                <input type="tel" placeholder="Mobile Number" required={isPrimary} value={t.mobile || ''} onChange={e => updateTravelerField(idx, 'mobile', e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }} />
+                                            </div>
+
+                                            <div style={{ marginBottom: '10px' }}>
+                                                <input type="email" placeholder="Email Address" required={isPrimary} value={t.email || ''} onChange={e => updateTravelerField(idx, 'email', e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }} />
+                                            </div>
+
+                                            {/* Special Requirements */}
+                                            <div style={{ borderTop: '1px dashed rgba(255,255,255,0.05)', paddingTop: '8px', fontSize: '12px' }}>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '5px' }}>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.wheelchair || false} onChange={e => updateTravelerRequirement(idx, 'wheelchair', e.target.checked)} />
+                                                        ♿ Wheelchair
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.seniorAssistance || false} onChange={e => updateTravelerRequirement(idx, 'seniorAssistance', e.target.checked)} />
+                                                        🤝 Sr. Assistance
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.pregnant || false} onChange={e => updateTravelerRequirement(idx, 'pregnant', e.target.checked)} />
+                                                        🤰 Pregnant Traveler
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.medicalConditionSupport || false} onChange={e => updateTravelerRequirement(idx, 'medicalConditionSupport', e.target.checked)} />
+                                                        🩺 Medical Condition Support
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.petTraveler || false} onChange={e => updateTravelerRequirement(idx, 'petTraveler', e.target.checked)} />
+                                                        🐾 Pet Traveler
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.accessibleTransport || false} onChange={e => updateTravelerRequirement(idx, 'accessibleTransport', e.target.checked)} />
+                                                        🚍 Accessible Transport
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.emergencySupport || false} onChange={e => updateTravelerRequirement(idx, 'emergencySupport', e.target.checked)} />
+                                                        🚨 Emergency Support
+                                                    </label>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                                        <input type="checkbox" checked={t.specialRequirements?.extraLuggage || false} onChange={e => updateTravelerRequirement(idx, 'extraLuggage', e.target.checked)} />
+                                                        🧳 Extra Luggage
+                                                    </label>
+                                                    <select value={t.specialRequirements?.mealPreference || 'No Preference'} onChange={e => updateTravelerRequirement(idx, 'mealPreference', e.target.value)} style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '11px', minWidth: '140px' }}>
+                                                        <option value="No Preference">No Preference</option>
+                                                        <option value="Vegetarian">Vegetarian</option>
+                                                        <option value="Non-Vegetarian">Non-Vegetarian</option>
+                                                        <option value="Vegan">Vegan</option>
+                                                    </select>
+                                                </div>
+                                                {t.specialRequirements?.medicalConditionSupport && (
+                                                    <div style={{ marginTop: '10px' }}>
+                                                        <textarea
+                                                            placeholder="Medical condition details or assistance required"
+                                                            value={t.specialRequirements.medicalConditionDetails || ''}
+                                                            onChange={e => updateTravelerRequirement(idx, 'medicalConditionDetails', e.target.value)}
+                                                            style={{ width: '100%', minHeight: '70px', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div style={{ padding: '15px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '20px', fontSize: '13px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.5px' }}>Estimated Travelers</div>
+                                        <div style={{ color: 'var(--text-main)', fontWeight: '600' }}>{formData.numberOfPeople} traveler{formData.numberOfPeople === 1 ? '' : 's'}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.5px' }}>Traveler Type</div>
+                                        <div style={{ color: 'var(--text-main)', fontWeight: '600' }}>{getTravelerType(travelers)}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.5px' }}>Adults / Children / Infants</div>
+                                        <div style={{ color: 'var(--text-main)', fontWeight: '600' }}>{travelerCounts.Adult || 0} / {travelerCounts.Child || 0} / {travelerCounts.Infant || 0}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.5px' }}>Estimated Package Cost</div>
+                                        <div style={{ color: 'var(--accent)', fontWeight: '700' }}>₹{((bookingForm.destination.price || 5000) * totalMultipliers).toLocaleString('en-IN')}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {getPersonalizedRecommendations(getTravelerType(travelers)).length > 0 && (
+                                <div style={{ padding: '15px', borderRadius: '12px', background: 'rgba(129, 140, 248, 0.08)', border: '1px solid rgba(129, 140, 248, 0.2)', marginBottom: '20px' }}>
+                                    <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '10px' }}>Smart Traveler Guidance</div>
+                                    <div style={{ display: 'grid', gap: '10px' }}>
+                                        {getPersonalizedRecommendations(getTravelerType(travelers)).map((item, idx) => (
+                                            <div key={idx} style={{ padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
+                                                <strong style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>{item.title}</strong>
+                                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{item.desc}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Detected profile badge */}
+                            <div style={{ background: 'rgba(129, 140, 248, 0.1)', padding: '10px 15px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-main)', marginBottom: '15px', border: '1px solid rgba(129, 140, 248, 0.2)' }}>
+                                💡 <strong>Traveler Profile:</strong> {getTravelerType(travelers)} &bull; <strong>Price Multiplier:</strong> {totalMultipliers}x
                             </div>
 
                             <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
@@ -1581,36 +3473,142 @@ const Chatbot = ({ addToCart }) => {
                 )}
                 <div ref={messagesEndRef} />
             </div>
-            <div className="chat-input" style={{ display: 'flex', gap: '10px' }}>
-                <button 
-                    className="btn" 
-                    onClick={toggleListening}
-                    style={{ 
-                        padding: '10px', 
-                        background: isListening ? '#ef4444' : 'transparent',
-                        color: isListening ? '#fff' : 'var(--accent)',
-                        animation: isListening ? 'pulse 1.5s infinite' : 'none'
-                    }}
-                    title="Speak"
-                >
-                    {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-                </button>
-                <input
-                    type="text"
-                    placeholder={isListening ? "Listening..." : "Ask me something..."}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleSend();
-                        }
-                    }}
-                    style={{ flex: 1 }}
-                />
-                <button className="btn" onClick={handleSend}>
-                    <Send size={20} />
-                </button>
+            <div style={{ marginBottom: '10px', display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '5px' }}>
+                {['🏕️ Best Camping Spots', '🏖️ Top Beaches', '⛰️ Mountains', '🏛️ Historical Places', '🌿 Wildlife Safaris'].map((chip, i) => (
+                    <button 
+                        key={i}
+                        onClick={() => handleSend(chip)}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: '15px',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white',
+                            fontSize: '13px',
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.2)'; e.currentTarget.style.borderColor = 'rgba(16,185,129,0.5)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+                    >
+                        {chip}
+                    </button>
+                ))}
+            </div>
+            <div className="chat-input" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {micError && (
+                    <div style={{
+                        padding: '8px 12px',
+                        borderRadius: '10px',
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        border: '1px solid rgba(239, 68, 68, 0.35)',
+                        color: '#fca5a5',
+                        fontSize: '13px'
+                    }}>
+                        {micError}
+                    </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                    {selectedImage && (
+                        <div style={{ position: 'relative', width: 'fit-content' }}>
+                            <img src={selectedImage} alt="Preview" style={{ height: '80px', borderRadius: '8px', border: '2px solid rgba(255,255,255,0.2)' }} />
+                            <button
+                                onClick={() => { setSelectedImage(null); setImageMimeType(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                                style={{ position: 'absolute', top: '-8px', right: '-8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <EmergencyButton onClick={() => setShowEmergencyModal(true)} />
+                        <EmergencyModal
+                            visible={showEmergencyModal}
+                            onClose={() => setShowEmergencyModal(false)}
+                            onSubmit={(query) => {
+                                setShowEmergencyModal(false);
+                                if (navigator && navigator.geolocation) {
+                                    navigator.geolocation.getCurrentPosition((pos) => callEmergency(query, { lat: pos.coords.latitude, lng: pos.coords.longitude }), () => callEmergency(query));
+                                } else {
+                                    callEmergency(query);
+                                }
+                            }}
+                        />
+
+                        <button
+                            type="button"
+                            className="btn mic-btn"
+                            onClick={toggleListening}
+                            style={{
+                                flexShrink: 0,
+                                background: (isListening || isMicStarting) ? '#ef4444' : 'rgba(0, 85, 255, 0.12)',
+                                color: (isListening || isMicStarting) ? '#fff' : 'var(--accent)',
+                                border: `2px solid ${(isListening || isMicStarting) ? '#ef4444' : 'rgba(255,255,255,0.35)'}`,
+                                boxShadow: (isListening || isMicStarting)
+                                    ? '0 0 20px rgba(239, 68, 68, 0.45)'
+                                    : '0 0 15px rgba(0, 85, 255, 0.25)',
+                                animation: isListening ? 'mic-pulse 1.5s infinite' : 'none',
+                                opacity: isMicStarting ? 0.85 : 1
+                            }}
+                            title={isListening ? 'Tap to stop and send' : isMicStarting ? 'Starting microphone...' : 'Tap to speak'}
+                        >
+                            {isMicStarting ? (
+                                <span className="mic-loading-spinner" aria-hidden="true" />
+                            ) : isListening ? (
+                                <MicOff size={20} />
+                            ) : (
+                                <Mic size={20} />
+                            )}
+                        </button>
+
+                        <input
+                            type="text"
+                            placeholder={
+                                isMicStarting
+                                    ? 'Starting microphone...'
+                                    : isListening
+                                        ? 'Listening... tap mic again when done'
+                                        : 'Ask me something...'
+                            }
+                            value={input}
+                            onChange={(e) => {
+                                setInput(e.target.value);
+                                if (!isListening) {
+                                    voiceTranscriptRef.current = e.target.value;
+                                }
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                            style={{ flex: 1 }}
+                        />
+
+                        <input 
+                            type="file" 
+                            accept="image/jpeg, image/png, image/webp"
+                            ref={fileInputRef}
+                            style={{ display: 'none' }}
+                            onChange={handleImageChange}
+                        />
+                        <button title="Upload Image" className="btn" onClick={() => fileInputRef.current && fileInputRef.current.click()} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                            <ImageIcon size={20} />
+                        </button>
+
+                        <button title="Send feedback" className="btn" onClick={() => setShowFeedbackModal(true)} style={{ marginRight: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                            ⭐
+                        </button>
+                        <FeedbackModal visible={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} afterSubmit={(r) => { /* no-op or show toast */ }} />
+
+                        <button id="chat-send-btn" className="btn" onClick={handleSend}>
+                            <Send size={20} />
+                        </button>
+                    </div>
+                </div>
             </div>
             </>
             )}
@@ -1642,6 +3640,60 @@ const Chatbot = ({ addToCart }) => {
                             entityId={expandedHotel} 
                             entityType="hotel" 
                         />
+                    </div>
+                </div>
+            )}
+            
+            {showCommunityModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+                    zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center',
+                    padding: '20px'
+                }}>
+                    <div className="glass-panel" style={{
+                        width: '100%', maxWidth: '500px', maxHeight: '90vh',
+                        overflowY: 'auto', padding: '30px', position: 'relative',
+                        background: 'rgba(15, 23, 42, 0.97)', border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '20px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
+                    }}>
+                        <button className="btn btn-danger" 
+                            style={{ position: 'absolute', top: '20px', right: '20px', padding: '8px 16px', fontSize: '14px', fontWeight: 'bold' }}
+                            onClick={() => setShowCommunityModal(false)}>
+                            ✕
+                        </button>
+                        
+                        <div style={{ marginBottom: '20px' }}>
+                            <h2 style={{ fontSize: '24px', margin: 0, color: 'var(--text-main)' }}>🌍 Submit a Hidden Gem</h2>
+                            <p style={{ margin: '5px 0 0 0', color: 'var(--text-muted)', fontSize: '14px' }}>Help the community discover amazing new places.</p>
+                        </div>
+                        
+                        <form onSubmit={submitCommunityPlace} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-muted)' }}>Place Name</label>
+                                <input type="text" required value={communityFormData.placeName} onChange={e => setCommunityFormData({...communityFormData, placeName: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'white' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-muted)' }}>Location / City</label>
+                                <input type="text" required value={communityFormData.location} onChange={e => setCommunityFormData({...communityFormData, location: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'white' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-muted)' }}>Category</label>
+                                <select value={communityFormData.category} onChange={e => setCommunityFormData({...communityFormData, category: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'white' }}>
+                                    <option value="hidden-gem">Hidden Gem</option>
+                                    <option value="scenic">Scenic Spot</option>
+                                    <option value="local-food">Local Food</option>
+                                    <option value="cultural">Cultural</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-muted)' }}>Description & Experience</label>
+                                <textarea required rows="4" value={communityFormData.description} onChange={e => setCommunityFormData({...communityFormData, description: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'white', resize: 'vertical' }}></textarea>
+                            </div>
+                            <button type="submit" className="btn btn-accent" style={{ padding: '15px', fontWeight: 'bold', fontSize: '16px', marginTop: '10px' }}>
+                                Submit for Review
+                            </button>
+                        </form>
                     </div>
                 </div>
             )}

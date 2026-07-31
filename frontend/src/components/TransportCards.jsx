@@ -122,13 +122,25 @@ const TransportCards = ({ from, to, type, onBook }) => {
                                 <div style={{ fontSize: '11px', color: t.availableSeats <= 10 ? '#ef4444' : 'var(--text-muted)', fontWeight: t.availableSeats <= 10 ? '700' : '400', marginBottom: '10px' }}>
                                     {t.availableSeats <= 10 ? `🔥 Only ${t.availableSeats} left!` : `${t.availableSeats} seats available`}
                                 </div>
-                                <button onClick={() => onBook && onBook(t)}
-                                    style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', transition: 'all 0.3s', width: '100%' }}
-                                    onMouseEnter={e => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 4px 15px rgba(16,185,129,0.4)'; }}
-                                    onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = 'none'; }}>
-                                    Book Now →
-                                </button>
-                            </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        <button onClick={() => onBook && onBook(t)}
+                                            style={{ background: 'var(--accent)', color: '#000', border: 'none', padding: '8px 20px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', transition: 'all 0.3s', width: '100%' }}
+                                            onMouseEnter={e => { e.target.style.transform = 'scale(1.03)'; e.target.style.boxShadow = '0 4px 15px rgba(16,185,129,0.4)'; }}
+                                            onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = 'none'; }}>
+                                            Add to Trip
+                                        </button>
+                                        <a href={
+                                            type === 'flight' ? `https://www.makemytrip.com/flights/` : 
+                                            type === 'bus' ? `https://www.redbus.in/bus-tickets/${encodeURIComponent(from)}-to-${encodeURIComponent(to)}` : 
+                                            `https://www.irctc.co.in/nget/train-search`
+                                        } target="_blank" rel="noreferrer"
+                                            style={{ display: 'inline-block', textAlign: 'center', textDecoration: 'none', background: 'rgba(255,255,255,0.05)', color: 'var(--text-main)', border: '1px solid rgba(255,255,255,0.15)', padding: '6px 12px', borderRadius: '8px', fontWeight: '600', fontSize: '12px', cursor: 'pointer', transition: 'all 0.2s', width: '100%', boxSizing: 'border-box' }}
+                                            onMouseEnter={e => { e.target.style.background = 'rgba(255,255,255,0.1)'; }}
+                                            onMouseLeave={e => { e.target.style.background = 'rgba(255,255,255,0.05)'; }}>
+                                            Verify on Official Site ↗
+                                        </a>
+                                    </div>
+                                </div>
                         </div>
 
                         {/* Expandable Review panel */}

@@ -4,8 +4,14 @@ const TravelStory = require('../models/TravelStory');
 const Booking = require('../models/Booking');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+function getStoryModel() {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+    const genAI = new GoogleGenerativeAI(apiKey);
+    return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+}
 
 // Generate story from booking
 router.post('/generate', async (req, res) => {
@@ -28,6 +34,7 @@ router.post('/generate', async (req, res) => {
         }
         Do not include markdown blocks around the JSON.`;
         
+        const model = getStoryModel();
         const result = await model.generateContent(prompt);
         let responseText = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
         let aiContent;

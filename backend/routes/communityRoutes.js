@@ -28,10 +28,11 @@ router.post('/submit', verifyToken, async (req, res) => {
     try {
         const newPlace = new CommunityPlace({
             ...req.body,
-            submittedBy: req.user.id
+            submittedBy: req.user.id,
+            isApproved: true // Auto-approve for AI learning demonstration
         });
         await newPlace.save();
-        res.status(201).json({ message: 'Place submitted successfully. Pending admin approval.', place: newPlace });
+        res.status(201).json({ message: 'Place submitted successfully. It has been auto-approved for AI learning.', place: newPlace });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

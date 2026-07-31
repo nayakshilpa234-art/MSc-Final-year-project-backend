@@ -56,6 +56,7 @@ router.post('/', async (req, res) => {
             
             let languageContext = "en";
             let communityPlacesContext = "No community places available.";
+            let memoryContext = "No memory context.";
             
             const authHeader = req.header('Authorization');
             if (authHeader) {
@@ -64,7 +65,7 @@ router.post('/', async (req, res) => {
                     try {
                         const jwt = require('jsonwebtoken');
                         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-                        userId = decoded.user.id;
+                        let userId = decoded.user.id;
                         const UserPreferences = require('../models/UserPreferences');
                         const prefs = await UserPreferences.findOne({ userId });
                         if (prefs) {

@@ -20,6 +20,9 @@ router.post('/', auth, async (req, res) => {
         const savedDest = await newDest.save();
         res.json(savedDest);
     } catch (err) {
+        if (err.code === 11000) {
+            return res.status(400).json({ msg: 'Destination with this name already exists' });
+        }
         res.status(500).send('Server Error');
     }
 });

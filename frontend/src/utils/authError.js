@@ -14,7 +14,7 @@ export function getAuthErrorMessage(err, fallback = 'Error processing request') 
   }
 
   if (err.response?.status >= 500) {
-    return 'Server error. Please try again in a moment.';
+    return data?.msg || data?.detail || 'Server error. Please try again in a moment.';
   }
 
   return err.message || fallback;

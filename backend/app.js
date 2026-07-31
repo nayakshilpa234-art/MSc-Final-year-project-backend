@@ -1,4 +1,8 @@
-require('dotenv').config();
+try {
+  require('dotenv').config();
+} catch (_) {
+  /* Vercel injects env vars; dotenv optional when bundled */
+}
 
 const express = require('express');
 const cors = require('cors');
@@ -13,7 +17,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  process.env.CLIENT_URL,
+  process.env.CLIENT_URL || process.env.FRONTEND_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
   'https://m-sc-final-year-project.vercel.app',
 ].filter(Boolean);
@@ -32,23 +36,29 @@ app.use(cors({
 }));
 
 app.use(express.static('public'));
-app.use(bodyParser.json({ limit: '2mb' }));
+app.use(bodyParser.json({ limit: '10mb' }));
+
+app.get('/api/health', async (req, res) => {
+  try {
+    await connectDB();
+    res.json({ ok: true, database: 'connected' });
+  } catch (err) {
+    console.error('Health check DB error:', err.message);
+    res.status(503).json({ ok: false, database: 'disconnected', msg: err.message });
+  }
+});
 
 app.use(async (req, res, next) => {
-  if (req.path === '/api/health') {
-    return next();
-  }
   try {
     await connectDB();
     next();
   } catch (err) {
     console.error('DB connection error:', err.message);
-    res.status(503).json({ msg: 'Database unavailable. Try again shortly.' });
+    const msg = err.message.includes('MONGO_URI')
+      ? err.message
+      : `Database unavailable: ${err.message}`;
+    res.status(503).json({ msg });
   }
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true });
 });
 
 app.use('/api/chat', require('./routes/chat'));
@@ -63,11 +73,26 @@ app.use('/api/community', require('./routes/communityRoutes'));
 app.use('/api/stories', require('./routes/travelStoryRoutes'));
 app.use('/api/nearby', require('./routes/nearbyRoutes'));
 app.use('/api/safety', require('./routes/safetyRoutes'));
+app.use('/api/emergency', require('./routes/emergencyRoutes'));
+app.use('/api/trips', require('./routes/tripsRoutes'));
+// admin routes
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/admin', require('./routes/feedbackRoutes'));
+app.use('/api/feedback', require('./routes/feedbackRoutes'));
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+let razorpayInstance = null;
+function getRazorpay() {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    throw new Error('Payment service is not configured');
+  }
+  if (!razorpayInstance) {
+    razorpayInstance = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+  }
+  return razorpayInstance;
+}
 
 function validateAmount(amount) {
   return Number.isInteger(amount) && amount >= 100 && amount <= 1000000000;
@@ -75,6 +100,7 @@ function validateAmount(amount) {
 
 app.post('/api/create-razorpay-order', async (req, res) => {
   try {
+    const razorpay = getRazorpay();
     const amount = Number(req.body.amount);
     if (!validateAmount(amount)) {
       return res.status(400).json({ error: 'Invalid amount. Amount must be an integer in paise between 100 and 1000000000.' });
@@ -89,7 +115,9 @@ app.post('/api/create-razorpay-order', async (req, res) => {
     return res.json(order);
   } catch (err) {
     console.error('Razorpay order creation failed:', err);
-    const errorMessage = (err && err.error && err.error.description) ? err.error.description : err.message || 'Razorpay order creation failed.';
+    const errorMessage = err.message === 'Payment service is not configured'
+      ? err.message
+      : (err && err.error && err.error.description) ? err.error.description : err.message || 'Razorpay order creation failed.';
     return res.status(500).json({ error: errorMessage });
   }
 });

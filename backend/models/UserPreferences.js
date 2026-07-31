@@ -22,7 +22,12 @@ const userPreferencesSchema = new mongoose.Schema({
     moodHistory: [{
         mood: String,
         date: { type: Date, default: Date.now }
-    }]
+    }],
+    voiceSettings: {
+        speakerOn: { type: Boolean, default: false },
+        voiceGender: { type: String, enum: ['male', 'female'], default: 'female' },
+        speechSpeed: { type: Number, default: 1.0 }
+    }
 });
 
 module.exports = mongoose.model('UserPreferences', userPreferencesSchema);

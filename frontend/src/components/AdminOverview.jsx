@@ -24,7 +24,7 @@ const AdminOverview = () => {
                 const bookings = bookingsRes.data;
                 const destinations = destRes.data;
 
-                const revenue = bookings.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
+                const revenue = bookings.reduce((sum, b) => sum + (b.totalCost || 0), 0);
                 
                 setStats({
                     totalRevenue: revenue,
@@ -105,7 +105,7 @@ const AdminOverview = () => {
                                     <td style={{ padding: '10px', fontSize: '13px' }}>#{b._id?.substring(0, 8)}</td>
                                     <td style={{ padding: '10px' }}>{b.name}</td>
                                     <td style={{ padding: '10px' }}>{new Date(b.createdAt).toLocaleDateString()}</td>
-                                    <td style={{ padding: '10px', color: 'var(--accent)', fontWeight: 'bold' }}>₹{b.totalPrice}</td>
+                                    <td style={{ padding: '10px', color: 'var(--accent)', fontWeight: 'bold' }}>₹{b.totalCost}</td>
                                     <td style={{ padding: '10px' }}><span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', padding: '3px 8px', borderRadius: '12px', fontSize: '12px' }}>{b.status || 'Confirmed'}</span></td>
                                 </tr>
                             )) : (

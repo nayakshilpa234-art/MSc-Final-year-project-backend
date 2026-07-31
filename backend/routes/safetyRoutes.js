@@ -3,8 +3,14 @@ const router = express.Router();
 const axios = require('axios');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+function getSafetyModel() {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+    const genAI = new GoogleGenerativeAI(apiKey);
+    return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+}
 
 // Get emergency contacts for a region
 router.get('/emergency/:region', (req, res) => {
@@ -27,6 +33,7 @@ router.get('/tips/:destination', async (req, res) => {
         const prompt = `Provide 3 short, specific safety tips for tourists visiting ${dest}. 
         Return ONLY a JSON array of strings. No markdown formatting.`;
         
+        const model = getSafetyModel();
         const result = await model.generateContent(prompt);
         let text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
         let tips;

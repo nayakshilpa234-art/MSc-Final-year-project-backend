@@ -20,6 +20,8 @@ const communityPlaceSchema = new mongoose.Schema({
         date: { type: Date, default: Date.now }
     }],
     isApproved: { type: Boolean, default: false },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    approvedAt: { type: Date },
     isHiddenGem: { type: Boolean, default: true },
     tags: [{ type: String }],
     createdAt: { type: Date, default: Date.now }

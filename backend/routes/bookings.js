@@ -2,6 +2,64 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const Booking = require('../models/Booking');
+const Destination = require('../models/Destination');
+
+const getAgeCategory = (age) => {
+    const parsedAge = Number(age);
+    if (Number.isNaN(parsedAge)) return 'Adult';
+    if (parsedAge >= 12) return 'Adult';
+    if (parsedAge >= 5) return 'Child';
+    return 'Infant';
+};
+
+const getPricingMultiplier = (ageCategory) => {
+    if (ageCategory === 'Adult') return 1.0;
+    if (ageCategory === 'Child') return 0.5;
+    return 0.0;
+};
+
+const detectTravelerProfile = (traveler) => {
+    const age = Number(traveler.age) || 0;
+    const req = traveler.specialRequirements || {};
+    if (req.pregnant) return 'Pregnant Traveler';
+    if (req.medicalConditionSupport) return 'Medical Condition Support';
+    if (req.petTraveler) return 'Pet Traveler';
+    if (req.wheelchair || req.accessibleTransport) return 'Differently-Abled Traveler';
+    if (req.seniorAssistance || age >= 60) return 'Senior Citizen';
+    if (age >= 5 && age < 12) return 'Child';
+    if (age < 5) return 'Infant';
+    return 'Adult';
+};
+
+const computeTravelerType = (travelers) => {
+    if (!Array.isArray(travelers) || travelers.length === 0) return 'Solo Traveler';
+    const ages = travelers.map(t => Number(t.age) || 0);
+    const hasSenior = ages.some(age => age >= 60);
+    const hasChild = ages.some(age => age >= 5 && age < 12);
+    const hasInfant = ages.some(age => age >= 0 && age < 5);
+    if (hasSenior) return 'Senior Citizen';
+    if (ages.length === 1) return 'Solo Traveler';
+    if (ages.length === 2 && !hasChild && !hasInfant) return 'Couple';
+    if (hasChild || hasInfant) return 'Family';
+    return 'Group';
+};
+
+const buildPricingBreakdown = (basePrice, travelers) => {
+    const counts = travelers.reduce((acc, t) => {
+        const category = getAgeCategory(t.age);
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+    }, {});
+    const totalMultipliers = travelers.reduce((sum, t) => sum + getPricingMultiplier(getAgeCategory(t.age)), 0);
+    return {
+        basePrice,
+        adultCount: counts.Adult || 0,
+        childCount: counts.Child || 0,
+        infantCount: counts.Infant || 0,
+        totalMultipliers,
+        finalBasePrice: basePrice * totalMultipliers
+    };
+};
 
 // Get my bookings (traveler)
 router.get('/my', auth, async (req, res) => {
@@ -30,34 +88,146 @@ router.post('/', async (req, res) => {
     try {
         let payload = req.body;
         const token = req.header('Authorization')?.split(' ')[1];
-        if (token) {
+        if (token && token !== 'null' && token !== 'undefined') {
             try {
                 const decoded = jwt.verify(token, process.env.JWT_SECRET);
                 payload.user = decoded.user.id;
-            } catch(e) {}
+            } catch(e) {
+                console.log('Token verification failed, proceeding as guest:', e.message);
+            }
         }
         
         // INTERCEPT DYNAMIC AI GENERATED DESTINATIONS
         if (typeof payload.destination === 'string' && payload.destination.startsWith('dynamic_') && payload.destinationObj) {
-            const Destination = require('../models/Destination');
-            const newDest = new Destination({
-                name: payload.destinationObj.name || payload.destinationObj.place_name,
-                location: payload.destinationObj.location || "Global Location",
-                category: ["beach", "mountain", "historical", "cultural", "adventure", "religious", "wildlife"].includes(payload.destinationObj.category?.toLowerCase()) ? payload.destinationObj.category.toLowerCase() : "historical",
-                description: payload.destinationObj.description || "Dynamic AI Booking",
-                price: payload.destinationObj.price || 5000,
-                imageUrl: payload.destinationObj.image_url || "https://images.unsplash.com/photo-1488085061387-422e29b40080?q=80&w=1000&auto=format&fit=crop"
-            });
-            const savedDest = await newDest.save();
-            // Swap the fake dynamic ID for the real physical database ID
-            payload.destination = savedDest._id;
+            try {
+                const newDest = new Destination({
+                    name: payload.destinationObj.name || payload.destinationObj.place_name,
+                    location: payload.destinationObj.location || "Global Location",
+                    category: ["beach", "mountain", "historical", "cultural", "adventure", "religious", "wildlife"].includes(payload.destinationObj.category?.toLowerCase()) ? payload.destinationObj.category.toLowerCase() : "historical",
+                    description: payload.destinationObj.description || "Dynamic AI Booking",
+                    price: payload.destinationObj.price || 5000,
+                    imageUrl: payload.destinationObj.image_url || "https://images.unsplash.com/photo-1488085061387-422e29b40080?q=80&w=1000&auto=format&fit=crop"
+                });
+                const savedDest = await newDest.save();
+                payload.destination = savedDest._id;
+            } catch (destErr) {
+                if (destErr.code === 11000) {
+                    // Destination already exists, fetch it
+                    const existingDest = await Destination.findOne({ name: { $regex: new RegExp(`^${payload.destinationObj.name}$`, 'i') } });
+                    if (existingDest) {
+                        payload.destination = existingDest._id;
+                    } else {
+                        return res.status(400).json({ msg: 'Failed to create or find destination' });
+                    }
+                } else {
+                    console.error("Destination creation failed:", destErr);
+                    return res.status(500).json({ msg: 'Failed to create destination' });
+                }
+            }
         }
+
+        let destinationPrice = 0;
+        if (payload.destinationObj?.price) {
+            destinationPrice = Number(payload.destinationObj.price) || 0;
+        } else if (payload.destination) {
+            try {
+                const destinationData = await Destination.findById(payload.destination);
+                destinationPrice = destinationData?.price || 0;
+            } catch (destFindErr) {
+                console.error("Failed to find destination:", destFindErr);
+                destinationPrice = 5000; // Fallback price
+            }
+        }
+
+        if (!Array.isArray(payload.travelers)) {
+            payload.travelers = [];
+        }
+
+        // Map single form values to travelers array if not already present
+        if (payload.travelers.length === 0 && payload.name) {
+            payload.travelers.push({
+                name: payload.name,
+                age: Number(payload.age) || 30,
+                gender: payload.gender || 'Male',
+                email: payload.email,
+                mobile: payload.phone || payload.mobile
+            });
+        }
+
+        // Ensure at least one traveler
+        if (payload.travelers.length === 0) {
+            payload.travelers.push({
+                name: 'Guest Traveler',
+                age: 30,
+                gender: 'Male',
+                email: payload.email || 'guest@travel.com',
+                mobile: payload.phone || '0000000000'
+            });
+        }
+
+        payload.travelers = payload.travelers.map(traveler => {
+            const age = Number(traveler.age) || 0;
+            return {
+                ...traveler,
+                age,
+                ageCategory: getAgeCategory(age),
+                profileType: detectTravelerProfile(traveler),
+                specialRequirements: {
+                    wheelchair: traveler.specialRequirements?.wheelchair || false,
+                    seniorAssistance: traveler.specialRequirements?.seniorAssistance || false,
+                    extraLuggage: traveler.specialRequirements?.extraLuggage || false,
+                    mealPreference: traveler.specialRequirements?.mealPreference || 'No Preference',
+                    pregnant: traveler.specialRequirements?.pregnant || false,
+                    medicalConditionSupport: traveler.specialRequirements?.medicalConditionSupport || false,
+                    medicalConditionDetails: traveler.specialRequirements?.medicalConditionDetails || '',
+                    petTraveler: traveler.specialRequirements?.petTraveler || false,
+                    accessibleTransport: traveler.specialRequirements?.accessibleTransport || false,
+                    emergencySupport: traveler.specialRequirements?.emergencySupport || false
+                }
+            };
+        });
+
+        payload.numberOfPeople = Number(payload.numberOfPeople) || payload.travelers.length || 1;
+        payload.travelerType = payload.travelerType || computeTravelerType(payload.travelers);
+        payload.pricingBreakdown = payload.pricingBreakdown || buildPricingBreakdown(destinationPrice, payload.travelers);
+        payload.totalCost = payload.totalCost || payload.pricingBreakdown.finalBasePrice || 0;
+        payload.name = payload.name || payload.travelers[0]?.name || 'Primary Traveler';
+        payload.email = payload.email || payload.travelers[0]?.email || 'guest@travel.com';
+        payload.status = payload.status || 'Pending';
+        payload.bookingStatus = payload.bookingStatus || 'Pending';
 
         const newBooking = new Booking(payload);
         const savedBooking = await newBooking.save();
         res.json(savedBooking);
     } catch (err) {
         console.error("Booking Creation Failed: ", err);
+        if (err.code === 11000) {
+            return res.status(400).json({ msg: 'Duplicate booking detected' });
+        }
+        if (err.name === 'ValidationError') {
+            return res.status(400).json({ msg: 'Validation error: ' + err.message });
+        }
+        res.status(500).json({ msg: 'Server Error: ' + err.message });
+    }
+});
+
+// Update booking provider (official redirected bookings)
+router.put('/:id/provider', async (req, res) => {
+    try {
+        const { providerName } = req.body;
+        const booking = await Booking.findByIdAndUpdate(
+            req.params.id, 
+            { 
+                providerName, 
+                bookingStatus: 'Redirected',
+                bookingType: 'Official'
+            }, 
+            { new: true }
+        );
+        if (!booking) return res.status(404).json({ msg: 'Booking not found' });
+        res.json(booking);
+    } catch (err) {
+        console.error("Provider update failed: ", err);
         res.status(500).send('Server Error');
     }
 });

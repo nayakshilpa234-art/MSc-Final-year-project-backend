@@ -52,6 +52,7 @@ router.get('/:entityId', async (req, res) => {
     
     try {
         const query = {
+            approved: true,
             $or: [
                 { destinationId: entityId },
                 { hotelId: entityId },

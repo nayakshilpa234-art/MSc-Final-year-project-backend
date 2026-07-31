@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm install && node ../scripts/copy-backend-for-vercel.cjs && npm install --prefix _backend",
+  "installCommand": "npm install && npm install --prefix ../backend",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
@@ -8,7 +8,7 @@
   ],
   "functions": {
     "api/index.js": {
-      "includeFiles": "_backend/**",
+      "includeFiles": "../backend/**",
       "maxDuration": 30
     }
   }
