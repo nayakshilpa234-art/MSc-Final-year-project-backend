@@ -95,6 +95,7 @@ router.post('/register', async (req, res) => {
             finalUsername = `${baseUsername}_${counter++}`;
         }
 
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
         const user = new User({
             name,
             username: finalUsername,
@@ -103,15 +104,126 @@ router.post('/register', async (req, res) => {
             role: 'user',
             chatHistory: guestHistory,
             authProvider: 'local',
+            isVerified: false,
+            otp: otp,
+            otpExpires: Date.now() + 10 * 60 * 1000 // 10 minutes
         });
         await user.save();
-        signUserToken(res, user);
+
+        const transporter = getMailTransporter();
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: user.email,
+            subject: 'Verify your AI Tourist Assistant account',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                    <h2 style="color: #333; text-align: center;">Welcome to AI Tourist Assistant, ${user.name}!</h2>
+                    <p style="font-size: 16px; color: #555; text-align: center;">Please verify your email address to activate your account.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <span style="background-color: #f3f4f6; color: #111; padding: 15px 30px; font-size: 24px; font-weight: bold; letter-spacing: 5px; border-radius: 5px; display: inline-block;">${otp}</span>
+                    </div>
+                    <p style="font-size: 14px; color: #777; text-align: center;">This code will expire in 10 minutes.</p>
+                </div>
+            `
+        };
+        
+        try {
+            await transporter.sendMail(mailOptions);
+            return res.json({ msg: 'OTP sent to email', userId: user._id, requireOtp: true });
+        } catch (emailErr) {
+            console.error('Failed to send OTP email:', emailErr);
+            // Even if email fails, we require OTP. They can use resend later.
+            return res.json({ msg: 'Registered, but failed to send OTP email. Please try resending later.', userId: user._id, requireOtp: true });
+        }
     } catch (err) {
         console.error('Register error:', err);
         if (err.code === 11000) {
             return res.status(400).json({ msg: 'Email already registered' });
         }
         res.status(500).json({ msg: err.message || 'Server error' });
+    }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/auth/verify-otp
+// ─────────────────────────────────────────────
+router.post('/verify-otp', async (req, res) => {
+    const { userId, otp } = req.body;
+    if (!userId || !otp) {
+        return res.status(400).json({ msg: 'User ID and OTP are required' });
+    }
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: 'User not found' });
+
+        if (user.isVerified) {
+            return res.status(400).json({ msg: 'User is already verified' });
+        }
+
+        if (user.otp !== otp.toString()) {
+            return res.status(400).json({ msg: 'Invalid OTP' });
+        }
+
+        if (user.otpExpires < Date.now()) {
+            return res.status(400).json({ msg: 'OTP has expired. Please request a new one.' });
+        }
+
+        // OTP is valid
+        user.isVerified = true;
+        user.otp = undefined;
+        user.otpExpires = undefined;
+        await user.save();
+
+        signUserToken(res, user);
+    } catch (err) {
+        console.error('Verify OTP error:', err);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/auth/resend-otp
+// ─────────────────────────────────────────────
+router.post('/resend-otp', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ msg: 'User ID is required' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: 'User not found' });
+        
+        if (user.isVerified) {
+            return res.status(400).json({ msg: 'User is already verified' });
+        }
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        user.otp = otp;
+        user.otpExpires = Date.now() + 10 * 60 * 1000;
+        await user.save();
+
+        const transporter = getMailTransporter();
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: user.email,
+            subject: 'Your new OTP for AI Tourist Assistant',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                    <h2 style="color: #333; text-align: center;">Hello ${user.name}!</h2>
+                    <p style="font-size: 16px; color: #555; text-align: center;">Here is your new OTP to verify your account.</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <span style="background-color: #f3f4f6; color: #111; padding: 15px 30px; font-size: 24px; font-weight: bold; letter-spacing: 5px; border-radius: 5px; display: inline-block;">${otp}</span>
+                    </div>
+                    <p style="font-size: 14px; color: #777; text-align: center;">This code will expire in 10 minutes.</p>
+                </div>
+            `
+        };
+
+        await transporter.sendMail(mailOptions);
+        res.json({ msg: 'A new OTP has been sent to your email.' });
+    } catch (err) {
+        console.error('Resend OTP error:', err);
+        res.status(500).json({ msg: 'Server error' });
     }
 });
 
@@ -153,6 +265,11 @@ router.post('/login', async (req, res) => {
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: 'Invalid email or password' });
+
+        // Check if user has verified their OTP
+        if (user.isVerified === false) {
+            return res.json({ msg: 'Please verify your email address to continue.', requireOtp: true, userId: user._id });
+        }
 
         // Merge guest history
         if (guestHistory.length > 0) {

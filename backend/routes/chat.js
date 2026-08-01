@@ -230,23 +230,8 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
 
             const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
             
-            // DYNAMIC MODEL SELECTION: 
-            // Ask Google precisely which models this specific API key is authorized to use!
-            let targetModel = "gemini-1.5-flash"; // fallback default
-            try {
-                const rawModelData = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY.trim()}`);
-                const modelJson = await rawModelData.json();
-                if (modelJson.models) {
-                    const validModels = modelJson.models.filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"));
-                    if (validModels.length > 0) {
-                        targetModel = validModels[0].name.replace('models/', '');
-                    }
-                }
-            } catch(e) {
-                console.log("Could not dynamically resolve models. Using default.");
-            }
-            
-            console.log(`Auto-resolved Google Model binding to: ${targetModel}`);
+            // Hardcode to gemini-flash-latest as 1.5 is returning 404 and 2.0 has quota issues
+            const targetModel = "gemini-flash-latest";
             const model = genAI.getGenerativeModel({ model: targetModel });
 
             const fullMessage = `${systemPrompt}\n\nCHAT HISTORY:\n${history || 'No previous history.'}\n\nUSER MESSAGE:\n${message}`;

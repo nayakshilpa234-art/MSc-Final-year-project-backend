@@ -23,6 +23,7 @@ import SuccessPage from './components/SuccessPage';
 import CancelPage from './components/CancelPage';
 import MyTrips from './components/MyTrips';
 import ResetPassword from './components/ResetPassword';
+import SubmitReviewPage from './components/SubmitReviewPage';
 
 // ── Protected Route — requires any logged-in user
 const ProtectedRoute = ({ children, token }) => {
@@ -346,6 +347,11 @@ function App() {
             <Route path="/mytrips" element={
               <UserProtectedRoute>
                 <MyTrips />
+              </UserProtectedRoute>
+            } />
+            <Route path="/review/:bookingId" element={
+              <UserProtectedRoute>
+                <SubmitReviewPage />
               </UserProtectedRoute>
             } />
           </Routes>

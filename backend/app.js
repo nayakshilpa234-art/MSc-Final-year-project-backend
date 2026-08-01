@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const Payment = require('./models/Payment');
 const { connectDB } = require('./db');
-
+require('./services/reviewCron'); // Initialize the automated review email service
 const app = express();
 
 const allowedOrigins = [

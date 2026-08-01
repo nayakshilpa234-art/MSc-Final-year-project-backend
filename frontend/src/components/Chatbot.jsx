@@ -1444,15 +1444,14 @@ const Chatbot = ({ addToCart }) => {
                                 const verifyData = await verifyRes.json();
                                 if (verifyData.success) {
                                     const newMsgs = [
-                                        { text: 'Payment successful! 🎉', sender: 'bot' },
+                                        { text: 'Payment successful! 🎉 Your booking is confirmed.', sender: 'bot' },
                                         {
-                                            text: 'We would love to get your feedback! Please rate and review your booking experience below to finalize your trip plan:',
-                                            sender: 'bot',
-                                            showFeedbackForm: true
+                                            text: 'Have a great trip! We will send you a link to review your experience after your trip ends.',
+                                            sender: 'bot'
                                         }
                                     ];
                                     setMessages(prev => [...prev, ...newMsgs]);
-                                    setPostBookingFlow(prev => ({ ...prev, step: 'review_form', selections: { ...prev.selections, paymentAmount: postBookingFlow.totalCost } }));
+                                    setPostBookingFlow(prev => ({ ...prev, step: 'complete', selections: { ...prev.selections, paymentAmount: postBookingFlow.totalCost } }));
                                 } else {
                                     setMessages(prev => [...prev, { text: 'Payment verification failed. Please try again.', sender: 'bot' }]);
                                 }

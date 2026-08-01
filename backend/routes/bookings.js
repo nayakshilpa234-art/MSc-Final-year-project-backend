@@ -3,6 +3,7 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const Booking = require('../models/Booking');
 const Destination = require('../models/Destination');
+const { sendReceiptEmail } = require('../services/receiptService');
 
 const getAgeCategory = (age) => {
     const parsedAge = Number(age);
@@ -198,6 +199,12 @@ router.post('/', async (req, res) => {
 
         const newBooking = new Booking(payload);
         const savedBooking = await newBooking.save();
+        
+        // Asynchronously generate and send receipt email if payment was successful
+        if (savedBooking.payment?.status === 'Success' || savedBooking.status === 'Confirmed') {
+            sendReceiptEmail(savedBooking).catch(e => console.error('Failed to send receipt email:', e));
+        }
+        
         res.json(savedBooking);
     } catch (err) {
         console.error("Booking Creation Failed: ", err);
@@ -228,6 +235,18 @@ router.put('/:id/provider', async (req, res) => {
         res.json(booking);
     } catch (err) {
         console.error("Provider update failed: ", err);
+        res.status(500).send('Server Error');
+    }
+});
+
+// Get booking by ID (public/authenticated for review page)
+router.get('/:id', async (req, res) => {
+    try {
+        const booking = await Booking.findById(req.params.id).populate('destination');
+        if (!booking) return res.status(404).json({ msg: 'Booking not found' });
+        res.json(booking);
+    } catch (err) {
+        console.error("Fetch booking failed:", err);
         res.status(500).send('Server Error');
     }
 });

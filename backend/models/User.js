@@ -30,6 +30,11 @@ const userSchema = new mongoose.Schema({
     googleId: { type: String },
     profilePicture: { type: String },
 
+    // OTP Verification
+    isVerified: { type: Boolean, default: false },
+    otp: { type: String },
+    otpExpires: { type: Date },
+
     // Password reset
     resetPasswordToken: { type: String },
     resetPasswordExpires: { type: Date },

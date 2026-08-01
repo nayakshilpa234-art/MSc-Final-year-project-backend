@@ -27,6 +27,7 @@ const bookingSchema = new mongoose.Schema({
     tripCompleted: { type: Boolean, default: false },
     completedAt: { type: Date },
     travelStoryGenerated: { type: Boolean, default: false },
+    reviewEmailSent: { type: Boolean, default: false },
     // External Booking Tracking
     externalBooking: { type: Boolean, default: false },
     pnr: { type: String },

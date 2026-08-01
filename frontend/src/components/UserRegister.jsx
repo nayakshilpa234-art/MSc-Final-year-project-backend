@@ -14,6 +14,12 @@ const UserRegister = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [socialLoading, setSocialLoading] = useState('');
+    
+    // OTP State
+    const [step, setStep] = useState('register');
+    const [userId, setUserId] = useState(null);
+    const [otp, setOtp] = useState('');
+
     const googleScriptRef = useRef(null);
     const navigate = useNavigate();
 
@@ -148,6 +154,13 @@ const UserRegister = () => {
                 guestHistory
             });
 
+            if (res.data.requireOtp) {
+                setUserId(res.data.userId);
+                setStep('otp');
+                return;
+            }
+
+            // Fallback if requireOtp isn't returned
             localStorage.setItem('token', res.data.token);
             localStorage.setItem('role', res.data.role || 'user');
             localStorage.setItem('username', res.data.username);
@@ -158,6 +171,48 @@ const UserRegister = () => {
             navigate('/');
         } catch (err) {
             setError(getAuthErrorMessage(err));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVerifyOtp = async (e) => {
+        e.preventDefault();
+        setError('');
+        if (!otp || otp.length !== 6) {
+            setError('Please enter a valid 6-digit OTP');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const res = await axios.post('/api/auth/verify-otp', { userId, otp });
+            
+            // On success, backend returns the token
+            localStorage.setItem('token', res.data.token);
+            localStorage.setItem('role', res.data.role || 'user');
+            localStorage.setItem('username', res.data.username);
+            if (res.data.email) localStorage.setItem('email', res.data.email);
+            if (res.data.name) localStorage.setItem('name', res.data.name);
+            localStorage.removeItem('chatHistory_guest');
+            window.dispatchEvent(new Event('authChange'));
+            navigate('/');
+        } catch (err) {
+            setError(err.response?.data?.msg || 'Invalid OTP. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleResendOtp = async () => {
+        setError('');
+        setLoading(true);
+        try {
+            await axios.post('/api/auth/resend-otp', { userId });
+            setError('');
+            alert('A new OTP has been sent to your email.');
+        } catch (err) {
+            setError(err.response?.data?.msg || 'Failed to resend OTP.');
         } finally {
             setLoading(false);
         }
@@ -433,119 +488,187 @@ const UserRegister = () => {
 
             <div className="user-register-bg">
                 <div className="user-card">
-                    {/* Icon */}
-                    <div className="user-icon-wrap">
-                        <Bot size={30} color="#3b82f6" strokeWidth={1.5} />
-                    </div>
+                    {step === 'register' ? (
+                        <>
+                            {/* Icon */}
+                            <div className="user-icon-wrap">
+                                <Bot size={30} color="#3b82f6" strokeWidth={1.5} />
+                            </div>
 
-                    <h1 className="user-title">Create Account</h1>
-                    <p className="user-subtitle">Join AI Tourist Assistant today</p>
+                            <h1 className="user-title">Create Account</h1>
+                            <p className="user-subtitle">Join AI Tourist Assistant today</p>
 
-                    {/* Error */}
-                    {error && (
-                        <div className="user-error">
-                            <AlertCircle size={16} style={{ marginTop: '1px', flexShrink: 0 }} />
-                            <span>{error}</span>
-                        </div>
+                            {/* Error */}
+                            {error && (
+                                <div className="user-error">
+                                    <AlertCircle size={16} style={{ marginTop: '1px', flexShrink: 0 }} />
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleRegister} noValidate>
+                                {/* Name */}
+                                <div className="field-group">
+                                    <label className="field-label" htmlFor="user-name">Full Name</label>
+                                    <div className="field-wrap">
+                                        <User size={16} className="field-icon" />
+                                        <input
+                                            id="user-name"
+                                            type="text"
+                                            className="user-input"
+                                            placeholder="John Doe"
+                                            value={name}
+                                            onChange={e => setName(e.target.value)}
+                                            autoComplete="name"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Email */}
+                                <div className="field-group">
+                                    <label className="field-label" htmlFor="user-email">Email</label>
+                                    <div className="field-wrap">
+                                        <Mail size={16} className="field-icon" />
+                                        <input
+                                            id="user-email"
+                                            type="email"
+                                            className="user-input"
+                                            placeholder="you@example.com"
+                                            value={email}
+                                            onChange={e => setEmail(e.target.value)}
+                                            autoComplete="email"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Password */}
+                                <div className="field-group">
+                                    <label className="field-label" htmlFor="user-password">Password</label>
+                                    <div className="field-wrap">
+                                        <Lock size={16} className="field-icon" />
+                                        <input
+                                            id="user-password"
+                                            type={showPassword ? 'text' : 'password'}
+                                            className="user-input"
+                                            placeholder="Min 8 chars, uppercase, lowercase, number"
+                                            value={password}
+                                            onChange={e => setPassword(e.target.value)}
+                                            autoComplete="new-password"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            className="pwd-toggle"
+                                            onClick={() => setShowPassword(p => !p)}
+                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                        >
+                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Confirm Password */}
+                                <div className="field-group">
+                                    <label className="field-label" htmlFor="user-confirm-password">Confirm Password</label>
+                                    <div className="field-wrap">
+                                        <Lock size={16} className="field-icon" />
+                                        <input
+                                            id="user-confirm-password"
+                                            type={showConfirmPassword ? 'text' : 'password'}
+                                            className="user-input"
+                                            placeholder="Confirm your password"
+                                            value={confirmPassword}
+                                            onChange={e => setConfirmPassword(e.target.value)}
+                                            autoComplete="new-password"
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            className="pwd-toggle"
+                                            onClick={() => setShowConfirmPassword(p => !p)}
+                                            aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                                        >
+                                            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    className="user-submit"
+                                    disabled={loading}
+                                >
+                                    {loading ? (
+                                        <><div className="spin"><Bot size={16} /></div> Creating account...</>
+                                    ) : (
+                                        <>Create Account &rarr;</>
+                                    )}
+                                </button>
+                            </form>
+                        </>
+                    ) : (
+                        <>
+                            <div className="user-icon-wrap">
+                                <Mail size={30} color="#3b82f6" strokeWidth={1.5} />
+                            </div>
+
+                            <h1 className="user-title">Verify Email</h1>
+                            <p className="user-subtitle">We sent a 6-digit code to {email}</p>
+
+                            {/* Error */}
+                            {error && (
+                                <div className="user-error">
+                                    <AlertCircle size={16} style={{ marginTop: '1px', flexShrink: 0 }} />
+                                    <span>{error}</span>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleVerifyOtp} noValidate>
+                                <div className="field-group">
+                                    <label className="field-label" htmlFor="user-otp">Enter Verification Code</label>
+                                    <div className="field-wrap">
+                                        <Lock size={16} className="field-icon" />
+                                        <input
+                                            id="user-otp"
+                                            type="text"
+                                            className="user-input"
+                                            placeholder="123456"
+                                            value={otp}
+                                            onChange={e => setOtp(e.target.value)}
+                                            required
+                                            maxLength="6"
+                                            style={{ letterSpacing: '8px', fontSize: '18px', textAlign: 'center', paddingLeft: '0' }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    className="user-submit"
+                                    disabled={loading}
+                                >
+                                    {loading ? (
+                                        <><div className="spin"><Bot size={16} /></div> Verifying...</>
+                                    ) : (
+                                        <>Verify Account &rarr;</>
+                                    )}
+                                </button>
+
+                                <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                                    <button 
+                                        type="button" 
+                                        onClick={handleResendOtp}
+                                        style={{ background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: '14px', textDecoration: 'underline' }}
+                                        disabled={loading}
+                                    >
+                                        Didn't receive the code? Resend
+                                    </button>
+                                </div>
+                            </form>
+                        </>
                     )}
-
-                    <form onSubmit={handleRegister} noValidate>
-                        {/* Name */}
-                        <div className="field-group">
-                            <label className="field-label" htmlFor="user-name">Full Name</label>
-                            <div className="field-wrap">
-                                <User size={16} className="field-icon" />
-                                <input
-                                    id="user-name"
-                                    type="text"
-                                    className="user-input"
-                                    placeholder="John Doe"
-                                    value={name}
-                                    onChange={e => setName(e.target.value)}
-                                    autoComplete="name"
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        {/* Email */}
-                        <div className="field-group">
-                            <label className="field-label" htmlFor="user-email">Email</label>
-                            <div className="field-wrap">
-                                <Mail size={16} className="field-icon" />
-                                <input
-                                    id="user-email"
-                                    type="email"
-                                    className="user-input"
-                                    placeholder="you@example.com"
-                                    value={email}
-                                    onChange={e => setEmail(e.target.value)}
-                                    autoComplete="email"
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        {/* Password */}
-                        <div className="field-group">
-                            <label className="field-label" htmlFor="user-password">Password</label>
-                            <div className="field-wrap">
-                                <Lock size={16} className="field-icon" />
-                                <input
-                                    id="user-password"
-                                    type={showPassword ? 'text' : 'password'}
-                                    className="user-input"
-                                    placeholder="Min 8 chars, uppercase, lowercase, number"
-                                    value={password}
-                                    onChange={e => setPassword(e.target.value)}
-                                    autoComplete="new-password"
-                                    required
-                                />
-                                <button
-                                    type="button"
-                                    className="pwd-toggle"
-                                    onClick={() => setShowPassword(p => !p)}
-                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                                >
-                                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Confirm Password */}
-                        <div className="field-group">
-                            <label className="field-label" htmlFor="user-confirm-password">Confirm Password</label>
-                            <div className="field-wrap">
-                                <Lock size={16} className="field-icon" />
-                                <input
-                                    id="user-confirm-password"
-                                    type={showConfirmPassword ? 'text' : 'password'}
-                                    className="user-input"
-                                    placeholder="Confirm your password"
-                                    value={confirmPassword}
-                                    onChange={e => setConfirmPassword(e.target.value)}
-                                    autoComplete="new-password"
-                                    required
-                                />
-                                <button
-                                    type="button"
-                                    className="pwd-toggle"
-                                    onClick={() => setShowConfirmPassword(p => !p)}
-                                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                                >
-                                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
-                            </div>
-                        </div>
-
-                        <button
-                            type="submit"
-                            className="user-submit"
-                            disabled={loading}
-                        >
-                            {loading ? 'Creating account...' : 'Create Account'}
-                        </button>
-                    </form>
 
                     {/* Divider */}
                     <div className="divider">

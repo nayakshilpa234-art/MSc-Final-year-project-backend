@@ -224,8 +224,8 @@ const ReviewsSection = ({ entityId, entityType, onReviewSubmitted }) => {
                                 padding: '6px 12px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer'
                             }}
                         >
-                            <option value="latest" style={{ background: '#111827' }}>Latest Reviews</option>
-                            <option value="highest" style={{ background: '#111827' }}>Highest Ratings</option>
+                            <option value="latest" style={{ background: '#111827', color: '#ffffff' }}>Latest Reviews</option>
+                            <option value="highest" style={{ background: '#111827', color: '#ffffff' }}>Highest Ratings</option>
                         </select>
                     </div>
                 </div>

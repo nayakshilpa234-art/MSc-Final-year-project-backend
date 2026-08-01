@@ -74,8 +74,7 @@ const TravelerDashboard = () => {
     }, [navigate]);
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('username');
+        ['token', 'role', 'username', 'name', 'email', 'profilePicture'].forEach(k => localStorage.removeItem(k));
         window.dispatchEvent(new Event('authChange'));
         navigate('/');
     };

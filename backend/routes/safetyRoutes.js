@@ -9,7 +9,7 @@ function getSafetyModel() {
         throw new Error('GEMINI_API_KEY is not configured');
     }
     const genAI = new GoogleGenerativeAI(apiKey);
-    return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    return genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 }
 
 // Get emergency contacts for a region
