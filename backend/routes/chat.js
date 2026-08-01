@@ -3,6 +3,8 @@ const router = express.Router();
 const axios = require('axios');
 const Destination = require('../models/Destination');
 
+const { resolveDestinationImage, sanitizeLocationName } = require('../services/imageService');
+
 // Smart keyword-based NLP logic with expanded detection
 function getKeywords(msg) {
     const text = msg.toLowerCase();
@@ -165,6 +167,8 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
       "budgets": {
         "5_days": "₹14000"
       },
+      "travel_tips": ["Carry sunscreen", "Rent a scooter to explore"],
+      "top_attractions": ["Baga Beach", "Dudhsagar Falls", "Fort Aguada"],
       "estimated_costs": {
         "low_budget": {
           "hotel": 1200,
@@ -282,23 +286,16 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
                         await prefs.save();
                     }
                     
-                    // GUARANTEE FAST & ACCURATE IMAGES
+                    // FIX IMAGES: ALWAYS use real DB images over AI-generated ones
                     if (aiResult.travel_cards && Array.isArray(aiResult.travel_cards)) {
-                        aiResult.travel_cards = aiResult.travel_cards.map((card, i) => {
-                            // Extract just the first word of the destination (e.g. "Paris, France" -> "paris")
-                            const safeWord = card.place_name ? encodeURIComponent(card.place_name.split(/[\s,]+/)[0].toLowerCase()) : "travel";
+                        for (let i = 0; i < aiResult.travel_cards.length; i++) {
+                            const card = aiResult.travel_cards[i];
+                            const placeName = card.place_name || 'Destination';
                             
-                            // Force valid fast image
-                            card.image_url = `https://loremflickr.com/1000/600/${safeWord},landmark/all?lock=${i + 10}`;
-                            
-                            // Force valid accurate image gallery
-                            card.image_gallery = [
-                                `https://loremflickr.com/800/600/${safeWord},city/all?lock=${i + 1}`,
-                                `https://loremflickr.com/800/600/${safeWord},architecture/all?lock=${i + 2}`,
-                                `https://loremflickr.com/800/600/${safeWord},nature/all?lock=${i + 3}`
-                            ];
-                            return card;
-                        });
+                            const realImage = await resolveDestinationImage(placeName);
+                            card.image_url = realImage.image_url;
+                            card.image_gallery = realImage.image_gallery;
+                        }
                     }
 
                 } catch (parseErr) {
@@ -349,9 +346,22 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
                 });
             }
         } catch (err) {
-            console.error("Gemini failed, falling back to basic...");
-            if (err.status) console.error(`[Gemini Error Status]: ${err.status} - ${err.statusText}`);
-            if (err.message) console.error(`[Gemini Error Message]: ${err.message}`);
+            if (err.status === 429 || (err.message && err.message.includes('429')) || (err.message && err.message.includes('RetryInfo'))) {
+                console.error("[Gemini API] Rate limit exceeded. (429 Too Many Requests)");
+                return res.json({ 
+                    reply: "I am receiving too many requests right now! Please wait a few seconds and try asking me again. ⏳", 
+                    action: "NONE" 
+                });
+            } else {
+                console.error("Gemini failed, falling back to basic...");
+                if (err.status) console.error(`[Gemini Error Status]: ${err.status} - ${err.statusText}`);
+                if (err.message) console.error(`[Gemini Error Message]: ${err.message}`);
+                try {
+                    console.error("FULL RAW ERROR:", JSON.stringify(err, null, 2));
+                } catch(e) {
+                    console.error("FULL RAW ERROR:", err);
+                }
+            }
         }
     }
 
@@ -434,22 +444,99 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
             });
             fuzzyResults.push(...found);
         }
-        // Deduplicate by _id
-        const seen = new Set();
-        fuzzyResults = fuzzyResults.filter(d => {
-            if (seen.has(d._id.toString())) return false;
-            seen.add(d._id.toString());
-            return true;
-        });
-
-        if (fuzzyResults.length > 0) {
-            let replyText = `I found ${fuzzyResults.length} destination(s) matching "${message}":\n\n`;
-            const placesList = fuzzyResults.map((p, i) => `${i + 1}. ${p.name} (${p.location}) - ₹${p.price.toLocaleString()}\n   ${p.description}`).join('\n\n');
-            replyText += placesList + '\n\nWant to book one? Say "Book [place name]" or ask for more details!';
-            return res.json({ reply: replyText, data: fuzzyResults });
+        // Deduplicate by name and pick the BEST entry (with real images)
+        const groupedResults = {};
+        for (const p of fuzzyResults) {
+            const key = p.name.toLowerCase();
+            if (!groupedResults[key]) groupedResults[key] = [];
+            groupedResults[key].push(p);
+        }
+        
+        fuzzyResults = [];
+        for (const [key, entries] of Object.entries(groupedResults)) {
+            // Pick the best match: prefer entries with image_gallery (seeded data)
+            const bestMatch = entries.find(d => d.image_gallery && d.image_gallery.length > 0) || entries.find(d => d.imageUrl && !d.imageUrl.includes('placehold.co')) || entries[0];
+            fuzzyResults.push(bestMatch);
         }
 
-        return res.json({ reply: `I don't have "${message}" in my local database yet, but I can help! Try asking:\n• "Recommend beach places"\n• "Show me mountain destinations"\n• "Book Taj Mahal"\n• "Show trips"\n\nOr ask about any tourist place and I'll find it for you!` });
+        if (fuzzyResults.length > 0) {
+            // Convert DB results to travel_cards so they render with REAL images
+            const travelCards = fuzzyResults.map(p => ({
+                place_name: p.name,
+                location: p.location,
+                category: p.category,
+                rating: p.rating ? String(p.rating) : "4.5",
+                reviews: "Popular",
+                description: p.description,
+                image_url: p.imageUrl,
+                image_gallery: p.image_gallery && p.image_gallery.length > 0 ? p.image_gallery : [p.imageUrl],
+                map_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name)}`,
+                best_time: p.best_time || "Year-round",
+                entry_fee: "Varies",
+                tags: [p.category],
+                weather: p.weather || { temperature: "25-30°C", condition: "Pleasant" },
+                budgets: p.budgets || {},
+                hotels: p.hotels || [],
+                foods: p.foods || [],
+                nearby_attractions: p.nearby_attractions || [],
+                itinerary: p.itinerary_3_day || [],
+                transport_options: p.transport_options || [],
+                packing_list: [],
+                _id: p._id
+            }));
+
+            // Double check for any bad images in DB and overwrite them with real images
+            for (let i = 0; i < travelCards.length; i++) {
+                if (!travelCards[i].image_url || travelCards[i].image_url.includes('placehold.co') || travelCards[i].image_url.includes('loremflickr')) {
+                    const realImage = await resolveDestinationImage(travelCards[i].place_name);
+                    travelCards[i].image_url = realImage.image_url;
+                    travelCards[i].image_gallery = realImage.image_gallery;
+                }
+            }
+
+            let replyText = `Here are the destinations matching "${message}":`;
+            return res.json({ 
+                reply: replyText, 
+                action: 'RECOMMENDATION',
+                travel_cards: travelCards 
+            });
+        }
+
+        // For truly unknown locations — return a card WITHOUT saving to DB
+        const locName = message.trim();
+        const formattedName = locName.charAt(0).toUpperCase() + locName.slice(1);
+
+        // Fetch real image using imageService
+        const realImage = await resolveDestinationImage(formattedName);
+        let fallbackImageUrl = realImage.image_url;
+
+        const mockCard = {
+            place_name: formattedName,
+            location: formattedName + ", India",
+            category: "cultural",
+            rating: "4.5",
+            reviews: "New",
+            description: `Explore the amazing destination of ${formattedName}. Ask me for more details or try another location!`,
+            image_url: fallbackImageUrl,
+            image_gallery: [fallbackImageUrl],
+            map_url: `https://maps.google.com/?q=${encodeURIComponent(locName)}`,
+            best_time: "Year round",
+            entry_fee: "Varies",
+            tags: ["Explore", "Travel"],
+            weather: {
+                temperature: "25°C",
+                condition: "Pleasant"
+            },
+            budgets: {
+                "5_days": "₹15000"
+            }
+        };
+
+        return res.json({ 
+            reply: `Here's what I found for ${formattedName}! Check out this overview:`,
+            action: 'RECOMMENDATION',
+            travel_cards: [mockCard]
+        });
 
     } catch (err) {
         res.status(500).json({ reply: 'Oops! Something went wrong on my end.' });

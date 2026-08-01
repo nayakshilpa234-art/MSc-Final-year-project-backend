@@ -3,25 +3,6 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const Booking = require('../models/Booking');
 const Destination = require('../models/Destination');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-// Ensure uploads directory exists
-const receiptsDir = path.join(__dirname, '..', 'public', 'uploads', 'receipts');
-if (!fs.existsSync(receiptsDir)) {
-    fs.mkdirSync(receiptsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, receiptsDir)
-    },
-    filename: function (req, file, cb) {
-        cb(null, `receipt-${Date.now()}-${req.params.id}.pdf`)
-    }
-});
-const upload = multer({ storage: storage });
 
 const getAgeCategory = (age) => {
     const parsedAge = Number(age);
@@ -288,34 +269,6 @@ router.delete('/:id', auth, async (req, res) => {
         await Booking.findByIdAndDelete(req.params.id);
         res.json({ msg: 'Booking deleted' });
     } catch (err) {
-        res.status(500).send('Server Error');
-    }
-});
-
-// Upload receipt PDF
-router.post('/:id/receipt', upload.single('receipt'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ msg: 'No receipt file provided.' });
-        }
-        const receiptPdfPath = `/uploads/receipts/${req.file.filename}`;
-        
-        // Generate pseudo transaction/invoice if missing
-        const booking = await Booking.findById(req.params.id);
-        if (!booking) return res.status(404).json({ msg: 'Booking not found' });
-        
-        const invoiceNumber = booking.invoiceNumber || `INV-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-        const transactionId = booking.transactionId || `TXN${Math.floor(10000000 + Math.random() * 90000000)}`;
-        
-        await Booking.findByIdAndUpdate(req.params.id, { 
-            receiptPdfPath,
-            invoiceNumber,
-            transactionId
-        });
-        
-        res.json({ receiptPdfPath, invoiceNumber, transactionId });
-    } catch (err) {
-        console.error('Error uploading receipt:', err);
         res.status(500).send('Server Error');
     }
 });

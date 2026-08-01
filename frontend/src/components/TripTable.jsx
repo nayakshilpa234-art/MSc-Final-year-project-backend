@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCart, Star, MapPin, Clock, Search, X, Check, Filter, Heart, BarChart2, Calendar, Sun, CloudRain, Users, Eye, TrendingUp, Info, Activity, Camera, Map } from 'lucide-react';
-import CompareModal from './CompareModal';
 
 const SKELETON_ARRAY = Array(6).fill(0);
 
@@ -100,15 +99,6 @@ const TripTable = ({ addToCart, onTripAdded }) => {
         loadData();
     }, [token]);
 
-    // Fetch compareList
-    useEffect(() => {
-        if (token) {
-            axios.get('/api/auth/compare', { headers: { Authorization: `Bearer ${token}` } })
-                 .then(res => setCompareList(res.data))
-                 .catch(err => console.error(err));
-        }
-    }, [token]);
-
     const handleWishlistToggle = async (e, tripId) => {
         e.stopPropagation();
         if (!token) return alert('Please login to save to wishlist.');
@@ -155,37 +145,14 @@ const TripTable = ({ addToCart, onTripAdded }) => {
         if (onTripAdded) onTripAdded(cartItem);
     };
 
-    const toggleCompare = async (e, trip) => {
-        if (e) e.stopPropagation();
-        
-        // Optimistic UI update
-        const isRemoving = compareList.find(t => t._id === trip._id);
-        if (isRemoving) {
+    const toggleCompare = (e, trip) => {
+        e.stopPropagation();
+        if (compareList.find(t => t._id === trip._id)) {
             setCompareList(compareList.filter(t => t._id !== trip._id));
         } else {
             if (compareList.length >= 3) return alert('You can compare up to 3 packages at once.');
             setCompareList([...compareList, trip]);
         }
-        
-        // Sync with DB if logged in
-        if (token) {
-            try {
-                const res = await axios.post('/api/auth/compare', { tripId: trip._id }, { headers: { Authorization: `Bearer ${token}` } });
-                setCompareList(res.data);
-            } catch (e) {
-                console.error(e);
-            }
-        }
-    };
-
-    const handleClearCompare = async () => {
-        setCompareList([]);
-        if (token) {
-            try {
-                await axios.delete('/api/auth/compare', { headers: { Authorization: `Bearer ${token}` } });
-            } catch (e) {}
-        }
-        setShowCompareModal(false);
     };
 
     // ── FILTERING LOGIC ──
@@ -535,18 +502,54 @@ const TripTable = ({ addToCart, onTripAdded }) => {
             </AnimatePresence>
 
             {/* ── COMPARE MODAL ── */}
-            <CompareModal 
-                visible={showCompareModal}
-                onClose={() => setShowCompareModal(false)}
-                compareList={compareList}
-                onRemove={(id) => toggleCompare(null, { _id: id })}
-                onClear={handleClearCompare}
-                onBook={(trip) => {
-                    setShowCompareModal(false);
-                    setBookingTrip(trip);
-                }}
-                onWishlist={handleWishlistToggle}
-            />
+            <AnimatePresence>
+                {showCompareModal && (
+                    <motion.div 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}
+                    >
+                        <div style={{ background: '#121212', width: '100%', maxWidth: '1000px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '30px', position: 'relative' }}>
+                            <button onClick={() => setShowCompareModal(false)} style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '8px', color: 'white', cursor: 'pointer' }}><X size={24} /></button>
+                            <h2 style={{ margin: '0 0 30px 0', fontSize: '28px' }}>Compare Packages</h2>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${compareList.length}, 1fr)`, gap: '20px' }}>
+                                {compareList.map(trip => (
+                                    <div key={trip._id} style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px' }}>
+                                        <img src={trip.heroImage || trip.image} style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '8px', marginBottom: '15px' }} />
+                                        <h3 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>{trip.destination}</h3>
+                                        
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', color: '#cbd5e1', fontSize: '14px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Price</span>
+                                                <strong style={{ color: '#3b82f6', fontSize: '16px' }}>₹{trip.price}</strong>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Duration</span>
+                                                <span>{trip.duration}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Rating</span>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Star size={14} color="#fbbf24" fill="#fbbf24"/> {trip.rating}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Transport</span>
+                                                <span>{trip.transport || 'Not Included'}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                                                <span style={{ color: '#94a3b8' }}>Hotel</span>
+                                                <span>{trip.hotel || 'Not Included'}</span>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => { setShowCompareModal(false); setBookingTrip(trip); }} style={{ width: '100%', marginTop: '20px', padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                            Book This
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* ── VIEW DETAILS FULL-SCREEN OVERLAY ── */}
             <AnimatePresence>

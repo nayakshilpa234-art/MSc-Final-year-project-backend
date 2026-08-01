@@ -38,9 +38,6 @@ const bookingSchema = new mongoose.Schema({
     busDetails: { type: Object },
     hotelDetails: { type: Object },
     paymentStatus: { type: String, default: 'Pending' },
-    receiptPdfPath: { type: String },
-    invoiceNumber: { type: String },
-    transactionId: { type: String },
     travelers: [{
         name: { type: String },
         age: { type: Number },

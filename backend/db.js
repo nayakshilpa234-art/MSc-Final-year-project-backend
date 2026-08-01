@@ -44,10 +44,28 @@ async function connectDB() {
         socketTimeoutMS: 45000,
         maxPoolSize: 10,
       })
-      .then((m) => {
+      .then(async (m) => {
         cache.conn = m.connection || m;
         console.log('MongoDB connected.');
         
+        // --- AUTO-CLEANUP START ---
+        // Clean up junk placehold.co and loremflickr entries that were accidentally created
+        try {
+          const Destination = require('./models/Destination');
+          const delRes = await Destination.deleteMany({
+            $or: [
+              { imageUrl: { $regex: /placehold\.co/i } },
+              { imageUrl: { $regex: /loremflickr\.com/i } }
+            ]
+          });
+          if (delRes.deletedCount > 0) {
+            console.log(`[CLEANUP] Deleted ${delRes.deletedCount} junk placeholder destination(s).`);
+          }
+        } catch (cleanErr) {
+          console.error('Failed to run auto-cleanup:', cleanErr.message);
+        }
+        // --- AUTO-CLEANUP END ---
+
         // Auto-seed destinations
         try {
           const { seedDestinations } = require('./services/seeder');

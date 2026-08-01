@@ -8,8 +8,6 @@ import TripTable from './TripTable';
 import TransportCards from './TransportCards';
 import SeatSelector from './SeatSelector';
 import AddonsSelector from './AddonsSelector';
-import BookingReceiptTemplate from './BookingReceiptTemplate';
-import html2pdf from 'html2pdf.js';
 import ReviewsSection from './ReviewsSection';
 import EmergencyButton from './EmergencyButton';
 import EmergencyModal from './EmergencyModal';
@@ -24,8 +22,6 @@ const Chatbot = ({ addToCart }) => {
     const [selectedImage, setSelectedImage] = useState(null);
     const [imageMimeType, setImageMimeType] = useState(null);
     const fileInputRef = useRef(null);
-    const receiptRef = useRef(null);
-    const [receiptBookingData, setReceiptBookingData] = useState(null);
     const [bookingForm, setBookingForm] = useState(null);
     const [formData, setFormData] = useState({ travelDate: '', numberOfPeople: 1, fromCity: 'Bangalore' });
     const [travelers, setTravelers] = useState([
@@ -271,49 +267,6 @@ const Chatbot = ({ addToCart }) => {
     const [itineraryTab, setItineraryTab] = useState(3); // 1 | 2 | 3 days
     const [officialBookingStep, setOfficialBookingStep] = useState('form'); // 'form' | 'providers'
     const [officialBookingFormData, setOfficialBookingFormData] = useState({ name: '', age: '', gender: 'Male', email: '', phone: '', fromCity: 'Bangalore', toCity: '', travelDate: '', returnDate: '', adults: 1, children: 0 });
-
-    // PDF Generation Logic
-    useEffect(() => {
-        if (receiptBookingData && receiptRef.current) {
-            const generatePdf = async () => {
-                try {
-                    const element = receiptRef.current;
-                    const opt = {
-                        margin:       0,
-                        filename:     `receipt-${receiptBookingData._id}.pdf`,
-                        image:        { type: 'jpeg', quality: 0.98 },
-                        html2canvas:  { scale: 2 },
-                        jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
-                    };
-                    const pdfBlob = await html2pdf().from(element).set(opt).output('blob');
-                    const formData = new FormData();
-                    formData.append('receipt', pdfBlob, `receipt-${receiptBookingData._id}.pdf`);
-                    const res = await axios.post(`/api/bookings/${receiptBookingData._id}/receipt`, formData);
-                    
-                    // Filter out the "Generating your digital receipt..." message and add the real card
-                    setMessages(prev => {
-                        const filtered = prev.filter(m => m.text !== 'Generating your digital receipt...');
-                        return [...filtered, {
-                            text: '',
-                            sender: 'bot',
-                            isReceiptCard: true,
-                            receiptData: {
-                                bookingId: receiptBookingData._id,
-                                transactionId: res.data.transactionId,
-                                invoiceNumber: res.data.invoiceNumber,
-                                receiptPdfPath: res.data.receiptPdfPath
-                            }
-                        }];
-                    });
-                } catch (err) {
-                    console.error("PDF generation failed:", err);
-                } finally {
-                    setReceiptBookingData(null); // Prevent re-trigger
-                }
-            };
-            setTimeout(generatePdf, 500); 
-        }
-    }, [receiptBookingData]);
 
     // Demo external booking states
     const [activeDemoProvider, setActiveDemoProvider] = useState(null);
@@ -1125,24 +1078,24 @@ const Chatbot = ({ addToCart }) => {
         }
     };
 
-    const callEmergency = async (query, opts = {}) => {
-        try {
-            const token = localStorage.getItem('token');
-            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-            const payload = { query };
-            if (opts.lat && opts.lng) { payload.lat = opts.lat; payload.lng = opts.lng; }
-            if (opts.tripId) payload.tripId = opts.tripId;
-            setMessages(prev => [...prev, { text: query, sender: 'user' }]);
-            const res = await axios.post('/api/emergency', payload, config);
-            if (res.data && res.data.aiResponse) {
-                setMessages(prev => [...prev, { text: res.data.aiResponse, sender: 'bot' }]);
-            } else {
-                setMessages(prev => [...prev, { text: 'Sorry, could not get emergency guidance right now.', sender: 'bot' }]);
+        const callEmergency = async (query, opts = {}) => {
+            try {
+                const token = localStorage.getItem('token');
+                const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+                const payload = { query };
+                if (opts.lat && opts.lng) { payload.lat = opts.lat; payload.lng = opts.lng; }
+                if (opts.tripId) payload.tripId = opts.tripId;
+                setMessages(prev => [...prev, { text: query, sender: 'user' }]);
+                const res = await axios.post('/api/emergency', payload, config);
+                if (res.data && res.data.aiResponse) {
+                    setMessages(prev => [...prev, { text: res.data.aiResponse, sender: 'bot' }]);
+                } else {
+                    setMessages(prev => [...prev, { text: 'Sorry, could not get emergency guidance right now.', sender: 'bot' }]);
+                }
+            } catch (err) {
+                setMessages(prev => [...prev, { text: 'Emergency service unavailable. Try again or contact local authorities.', sender: 'bot' }]);
             }
-        } catch (err) {
-            setMessages(prev => [...prev, { text: 'Emergency service unavailable. Try again or contact local authorities.', sender: 'bot' }]);
-        }
-    };
+        };
 
     const submitBooking = async (e) => {
         e.preventDefault();
@@ -1490,23 +1443,8 @@ const Chatbot = ({ addToCart }) => {
                                 });
                                 const verifyData = await verifyRes.json();
                                 if (verifyData.success) {
-                                    // Set booking data to trigger PDF generation
-                                    const fetchAndTriggerPdf = async () => {
-                                        try {
-                                            const freshBookingRes = await axios.get('/api/bookings');
-                                            const freshBooking = freshBookingRes.data.find(b => b._id === postBookingFlow.bookingId);
-                                            if (freshBooking) {
-                                                setReceiptBookingData(freshBooking);
-                                            }
-                                        } catch (e) {
-                                            console.error("Failed to fetch fresh booking for receipt", e);
-                                        }
-                                    };
-                                    fetchAndTriggerPdf();
-
                                     const newMsgs = [
-                                        { text: '🎉 **Booking Confirmed Successfully!**\nThank you for booking with AI Tourist Assistant. Your booking has been confirmed.\n\nStatus: ✅ Confirmed', sender: 'bot' },
-                                        { text: 'Generating your digital receipt...', sender: 'bot' },
+                                        { text: 'Payment successful! 🎉', sender: 'bot' },
                                         {
                                             text: 'We would love to get your feedback! Please rate and review your booking experience below to finalize your trip plan:',
                                             sender: 'bot',
@@ -1648,19 +1586,7 @@ const Chatbot = ({ addToCart }) => {
     };
 
     return (
-        <div style={{
-            display: 'flex',
-            height: '100vh',
-            width: '100vw',
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            background: 'url("https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=2021&auto=format&fit=crop") no-repeat center center fixed',
-            backgroundSize: 'cover',
-            fontFamily: 'Inter, sans-serif'
-        }}>
-            <BookingReceiptTemplate ref={receiptRef} booking={receiptBookingData} />
-            <div className="flex-responsive" style={{ gap: '20px', width: '100%', height: 'calc(100vh - 100px)' }}>
+        <div className="flex-responsive" style={{ gap: '20px', width: '100%', height: 'calc(100vh - 100px)' }}>
             {/* ChatGPT-style Saved Chats left sidebar */}
             <div className="admin-sidebar" style={{ 
                 flex: '1 1 260px', 
@@ -2038,10 +1964,10 @@ const Chatbot = ({ addToCart }) => {
                         setDetailPage({
                             ...baseObj,
                             place_name: baseObj.place_name || title,
-                            image_url: dest.image_url || dest.imageUrl || 'https://placehold.co/800x500/1e1b4b/a5b4fc?text=Destination',
-                            image_gallery: Array.isArray(dest.image_gallery) ? dest.image_gallery : [dest.image_url || dest.imageUrl || 'https://placehold.co/800x500/1e1b4b/a5b4fc?text=Destination'],
+                            image_url: dest.image_url || dest.imageUrl,
+                            image_gallery: Array.isArray(dest.image_gallery) ? dest.image_gallery : [dest.image_url || dest.imageUrl],
                             distance: dest.distance || baseObj.distance || 'Varies',
-                            attractions: Array.isArray(dest.attractions) ? dest.attractions : (baseObj.attractions || []),
+                            attractions: Array.isArray(dest.top_attractions) ? dest.top_attractions.map(a => typeof a === 'string' ? {name: a} : a) : (Array.isArray(dest.attractions) ? dest.attractions : (baseObj.attractions || [])),
                             travel_tips: Array.isArray(dest.travel_tips) ? dest.travel_tips : (baseObj.travel_tips || []),
                             safety_tips: Array.isArray(dest.safety_tips) ? dest.safety_tips : (baseObj.safety_tips || []),
                             foods: Array.isArray(dest.foods) ? dest.foods : (baseObj.foods || []),
@@ -2053,13 +1979,15 @@ const Chatbot = ({ addToCart }) => {
                         });
                     };
 
-                    const imageUrl = isTravelCard ? (dest.image_url || dest.imageUrl) : (dest.imageUrl || dest.image_url);
+                    const rawImageUrl = isTravelCard ? (dest.image_url || dest.imageUrl) : (dest.imageUrl || dest.image_url);
+                    const fallbackImageUrl = "";
+                    const imageUrl = rawImageUrl || fallbackImageUrl;
 
                     return (
                         <div style={{ borderRadius: '16px', overflow: 'hidden', background: 'rgba(10,15,30,0.85)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)', transition: 'all 0.3s', padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                             {imageUrl && (
-                                <div style={{ width: '100%', height: '180px', borderRadius: '12px', overflow: 'hidden', marginBottom: '5px' }}>
-                                    <img src={imageUrl} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <div style={{ width: '100%', height: '180px', borderRadius: '12px', overflow: 'hidden', marginBottom: '5px', background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)' }}>
+                                    <img src={imageUrl} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.onerror = null; e.target.src = fallbackImageUrl; }} />
                                 </div>
                             )}
                             <div>
@@ -2118,7 +2046,7 @@ const Chatbot = ({ addToCart }) => {
                             ← Back to Chat
                         </button>
                         
-                        <div style={{ position: 'relative', borderRadius: '15px', overflow: 'hidden', height: '300px', marginBottom: '20px' }}>
+                        <div style={{ position: 'relative', borderRadius: '15px', overflow: 'hidden', height: '300px', marginBottom: '20px', background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)' }}>
                             <img src={detailPage.image_url} alt={detailPage.place_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.8))', padding: '20px' }}>
                                 <h2 style={{ margin: 0, fontSize: '32px', color: 'white' }}>{detailPage.place_name}</h2>
@@ -2141,6 +2069,7 @@ const Chatbot = ({ addToCart }) => {
                                             <img src={img} alt={`${detailPage.place_name} ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s' }}
                                                 onMouseOver={e => e.target.style.transform = 'scale(1.05)'}
                                                 onMouseOut={e => e.target.style.transform = 'scale(1)'}
+                                                onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }}
                                             />
                                         </div>
                                     ))}
@@ -2875,22 +2804,6 @@ const Chatbot = ({ addToCart }) => {
                                 </button>
                             </div>
                         )}
-                        {msg.isReceiptCard && msg.receiptData && (
-                            <div className="glass-panel" style={{ marginTop: '15px', padding: '20px', borderRadius: '12px', borderLeft: '4px solid #10b981' }}>
-                                <h3 style={{ margin: '0 0 10px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>🧾 Booking Summary</h3>
-                                <div style={{ fontSize: '13px', color: 'var(--text-main)', marginBottom: '15px', lineHeight: '1.6' }}>
-                                    <div><strong>Booking ID:</strong> {msg.receiptData.bookingId}</div>
-                                    <div><strong>Transaction ID:</strong> {msg.receiptData.transactionId}</div>
-                                    <div><strong>Invoice:</strong> {msg.receiptData.invoiceNumber}</div>
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                                    <button className="btn btn-accent" onClick={() => window.open(msg.receiptData.receiptPdfPath, '_blank')}>📄 Download Booking Receipt (PDF)</button>
-                                    <button className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => window.open(msg.receiptData.receiptPdfPath, '_blank')}>🧾 Download Invoice</button>
-                                    <button className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => window.open(`mailto:?subject=Booking Receipt&body=Here is your booking receipt: ${window.location.origin}${msg.receiptData.receiptPdfPath}`)}>📧 Email Receipt</button>
-                                    <button className="btn" style={{ background: 'rgba(255,255,255,0.1)' }} onClick={() => { const printWindow = window.open(msg.receiptData.receiptPdfPath, '_blank'); printWindow.onload = () => printWindow.print(); }}>🖨 Print Receipt</button>
-                                </div>
-                            </div>
-                        )}
                         {msg.options && msg.options.length > 0 && msg.step !== 'stay' && (
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
                                 {msg.options.map((opt, idx) => (
@@ -3445,9 +3358,9 @@ const Chatbot = ({ addToCart }) => {
 
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                                                 <select value={t.gender} onChange={e => updateTravelerField(idx, 'gender', e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }}>
-                                                    <option value="Male">Male</option>
-                                                    <option value="Female">Female</option>
-                                                    <option value="Other">Other</option>
+                                                    <option value="Male" style={{color: '#000', background: '#fff'}}>Male</option>
+                                                    <option value="Female" style={{color: '#000', background: '#fff'}}>Female</option>
+                                                    <option value="Other" style={{color: '#000', background: '#fff'}}>Other</option>
                                                 </select>
                                                 <input type="tel" placeholder="Mobile Number" required={isPrimary} value={t.mobile || ''} onChange={e => updateTravelerField(idx, 'mobile', e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '13px' }} />
                                             </div>
@@ -3492,10 +3405,10 @@ const Chatbot = ({ addToCart }) => {
                                                         🧳 Extra Luggage
                                                     </label>
                                                     <select value={t.specialRequirements?.mealPreference || 'No Preference'} onChange={e => updateTravelerRequirement(idx, 'mealPreference', e.target.value)} style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-main)', color: 'var(--text-main)', fontSize: '11px', minWidth: '140px' }}>
-                                                        <option value="No Preference">No Preference</option>
-                                                        <option value="Vegetarian">Vegetarian</option>
-                                                        <option value="Non-Vegetarian">Non-Vegetarian</option>
-                                                        <option value="Vegan">Vegan</option>
+                                                        <option value="No Preference" style={{color: '#000', background: '#fff'}}>No Preference</option>
+                                                        <option value="Vegetarian" style={{color: '#000', background: '#fff'}}>Vegetarian</option>
+                                                        <option value="Non-Vegetarian" style={{color: '#000', background: '#fff'}}>Non-Vegetarian</option>
+                                                        <option value="Vegan" style={{color: '#000', background: '#fff'}}>Vegan</option>
                                                     </select>
                                                 </div>
                                                 {t.specialRequirements?.medicalConditionSupport && (
