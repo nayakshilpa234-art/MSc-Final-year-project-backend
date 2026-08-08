@@ -14,7 +14,7 @@ const AdminBookings = () => {
 
     const fetchBookings = async () => {
         try {
-            const res = await ax.get('/api/bookings');
+            const res = await ax.get('/api/admin/bookings');
             setBookings(res.data);
         } catch (err) {
             console.error(err);
@@ -23,7 +23,7 @@ const AdminBookings = () => {
 
     const updateStatus = async (id, status) => {
         try {
-            await ax.put(`/api/bookings/${id}/status`, { status });
+            await ax.patch(`/api/admin/bookings/${id}/status`, { status });
             fetchBookings();
         } catch (err) {
             alert('Error updating status');
@@ -32,7 +32,7 @@ const AdminBookings = () => {
 
     const handleDelete = async (id) => {
         if (window.confirm('Are you sure you want to delete this booking?')) {
-            await ax.delete(`/api/bookings/${id}`);
+            await ax.delete(`/api/admin/bookings/${id}`);
             fetchBookings();
         }
     };

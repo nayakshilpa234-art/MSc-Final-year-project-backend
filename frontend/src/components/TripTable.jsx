@@ -450,8 +450,13 @@ const TripTable = ({ addToCart, onTripAdded }) => {
 
                     {/* Main Grid */}
                     {loading ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-                            {SKELETON_ARRAY.map((_, i) => <SkeletonCard key={i} />)}
+                        <div>
+                            <div style={{ marginBottom: '15px', color: '#94a3b8', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span className="typing-indicator" style={{ display: 'inline-flex' }}><span></span><span></span><span></span></span> Loading destination images...
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
+                                {SKELETON_ARRAY.map((_, i) => <SkeletonCard key={i} />)}
+                            </div>
                         </div>
                     ) : filteredTrips.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '100px 20px', background: '#121212', borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.1)' }}>

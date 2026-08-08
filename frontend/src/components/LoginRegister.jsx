@@ -9,10 +9,8 @@ const LoginRegister = () => {
     const [formError, setFormError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
     const [submitting, setSubmitting] = useState(false);
-    const [socialLoading, setSocialLoading] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-    const googleScriptRef = useRef(null);
     const navigate = useNavigate();
 
     // Form fields
@@ -21,8 +19,6 @@ const LoginRegister = () => {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [forgotEmail, setForgotEmail] = useState('');
-
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
     // ── Password strength
     const getPasswordStrength = (pwd) => {
@@ -39,61 +35,6 @@ const LoginRegister = () => {
         return { score, label: 'Strong', color: '#10b981' };
     };
     const pwdStrength = getPasswordStrength(password);
-
-    // ── Google OAuth
-    const handleGoogleResponse = useCallback(async (response) => {
-        setSocialLoading('google');
-        setFormError('');
-        try {
-            const base64Url = response.credential.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(
-                window.atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-            );
-            const decoded = JSON.parse(jsonPayload);
-
-            const res = await axios.post('/api/auth/social', {
-                provider: 'google',
-                token: response.credential,
-                email: decoded.email,
-                name: decoded.name,
-                providerId: decoded.sub,
-                profilePicture: decoded.picture,
-            });
-
-            storeAuthData(res.data);
-            navigate(getRoleRedirect(res.data.role));
-        } catch (err) {
-            setFormError(err?.response?.data?.msg || 'Google login failed. Please try again.');
-        } finally {
-            setSocialLoading('');
-        }
-    }, [navigate]);
-
-    useEffect(() => {
-        if (!googleClientId) return;
-        const script = document.createElement('script');
-        script.src = 'https://accounts.google.com/gsi/client';
-        script.async = true;
-        script.defer = true;
-        googleScriptRef.current = script;
-        document.head.appendChild(script);
-        script.onload = () => {
-            const btnHost = document.getElementById('google-signin-btn');
-            if (!window.google?.accounts?.id || !btnHost) return;
-            window.google.accounts.id.initialize({ client_id: googleClientId, callback: handleGoogleResponse });
-            window.google.accounts.id.renderButton(btnHost, {
-                theme: 'filled_black', size: 'large',
-                width: Math.min(380, window.innerWidth - 80),
-                text: 'continue_with', shape: 'pill', logo_alignment: 'left',
-            });
-        };
-        return () => {
-            if (googleScriptRef.current?.parentNode) {
-                googleScriptRef.current.parentNode.removeChild(googleScriptRef.current);
-            }
-        };
-    }, [googleClientId, handleGoogleResponse, view]);
 
     function storeAuthData(data) {
         localStorage.setItem('token', data.token);
@@ -229,20 +170,6 @@ const LoginRegister = () => {
 
             <ErrorBox msg={formError} />
 
-            {/* Google Button */}
-            <div style={{ marginBottom: '16px' }}>
-                {googleClientId ? (
-                    <div id="google-signin-btn" style={{ display: 'flex', justifyContent: 'center', minHeight: '44px' }} />
-                ) : (
-                    <button type="button" disabled style={{ ...styles.socialBtn, opacity: 0.5, cursor: 'not-allowed' }}>
-                        <svg width="18" height="18" viewBox="0 0 18 18"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
-                        Continue with Google (configure VITE_GOOGLE_CLIENT_ID)
-                    </button>
-                )}
-            </div>
-
-            <div style={styles.divider}><span style={styles.dividerText}>or continue with email</span></div>
-
             <InputField id="login-email" label="Email address" type="email" value={email}
                 onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
                 icon={Mail} autoComplete="email" />
@@ -284,20 +211,6 @@ const LoginRegister = () => {
             </div>
 
             <ErrorBox msg={formError} />
-
-            {/* Google Sign-Up */}
-            <div style={{ marginBottom: '16px' }}>
-                {googleClientId ? (
-                    <div id="google-signin-btn" style={{ display: 'flex', justifyContent: 'center', minHeight: '44px' }} />
-                ) : (
-                    <button type="button" disabled style={{ ...styles.socialBtn, opacity: 0.5, cursor: 'not-allowed' }}>
-                        <svg width="18" height="18" viewBox="0 0 18 18"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
-                        Continue with Google (configure VITE_GOOGLE_CLIENT_ID)
-                    </button>
-                )}
-            </div>
-
-            <div style={styles.divider}><span style={styles.dividerText}>or sign up with email</span></div>
 
             <InputField id="signup-name" label="Full name" type="text" value={name}
                 onChange={e => setName(e.target.value)} placeholder="Your full name"

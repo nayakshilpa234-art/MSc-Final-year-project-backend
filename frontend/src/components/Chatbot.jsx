@@ -247,6 +247,7 @@ const Chatbot = ({ addToCart }) => {
     const [allDestinations, setAllDestinations] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResult, setSearchResult] = useState(null);
+    const [dynamicChips, setDynamicChips] = useState(['🏕️ Best Camping Spots', '🏖️ Top Beaches', '⛰️ Mountains', '🏛️ Historical Places', '🌿 Wildlife Safaris']);
     const [postBookingFlow, setPostBookingFlow] = useState(null);
     const [isListening, setIsListening] = useState(false);
     const [isMicStarting, setIsMicStarting] = useState(false);
@@ -1061,6 +1062,10 @@ const Chatbot = ({ addToCart }) => {
                 showTrips: res.data.action === 'SHOW_TRIPS' 
             };
             
+            if (res.data.dynamic_chips && Array.isArray(res.data.dynamic_chips) && res.data.dynamic_chips.length > 0) {
+                setDynamicChips(res.data.dynamic_chips);
+            }
+            
             if (voiceSettings.speakerOn && res.data.reply) {
                 speakMessage(res.data.reply);
             }
@@ -1382,8 +1387,15 @@ const Chatbot = ({ addToCart }) => {
 
         if (step === 'payment_method') {
             const paymentMethod = option.val;
-            setPostBookingFlow(prev => ({ ...prev, step: 'payment_amount', selections: { ...prev.selections, paymentMethod: paymentMethod } }));
-            setMessages(prev => [...prev, { text: `Opening Razorpay for ₹${postBookingFlow.totalCost}...`, sender: 'bot' }]);
+            const currentFlow = postBookingFlow;
+
+            if (!currentFlow || !currentFlow.totalCost) {
+                setMessages(prev => [...prev, { text: 'Your booking session has expired or is invalid. Please start a new booking process.', sender: 'bot' }]);
+                return;
+            }
+
+            setPostBookingFlow(prev => ({ ...prev, step: 'payment_amount', selections: { ...prev?.selections, paymentMethod: paymentMethod } }));
+            setMessages(prev => [...prev, { text: `Opening Razorpay for ₹${currentFlow.totalCost}...`, sender: 'bot' }]);
 
             // Load Razorpay SDK dynamically
             const loadRazorpay = () => {
@@ -2033,6 +2045,45 @@ const Chatbot = ({ addToCart }) => {
                             >
                                 🗺️ Explore Destination
                             </button>
+
+                            {dest.nearby_places && Array.isArray(dest.nearby_places) && dest.nearby_places.length > 0 && (
+                                <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <h4 style={{ margin: '0 0 15px 0', fontSize: '15px', color: 'white', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        📍 Nearby Places You May Like
+                                    </h4>
+                                    <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px', scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.2) transparent' }}>
+                                        {dest.nearby_places.map((np, i) => (
+                                            <div key={i} style={{ minWidth: '220px', maxWidth: '220px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+                                                <div style={{ height: '120px', width: '100%', background: '#1e293b' }}>
+                                                    <img src={np.image_url || 'https://placehold.co/400x300?text=Image+Not+Found'} alt={np.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/400x300?text=Image+Not+Found'; }} />
+                                                </div>
+                                                <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+                                                    <h5 style={{ margin: '0 0 5px 0', fontSize: '15px', color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{np.name}</h5>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--accent)', marginBottom: '8px' }}>
+                                                        <span>📍 {np.distance}</span>
+                                                        <span>⭐ {np.rating}</span>
+                                                    </div>
+                                                    <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', flexGrow: 1 }}>
+                                                        {np.description}
+                                                    </p>
+                                                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '10px' }}>
+                                                        🗓️ Best Time: {np.best_time}
+                                                    </div>
+                                                    <button 
+                                                        className="btn btn-accent" 
+                                                        style={{ width: '100%', padding: '8px', fontSize: '13px', borderRadius: '8px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', cursor: 'pointer', transition: 'all 0.2s' }}
+                                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.2)' }}
+                                                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.1)' }}
+                                                        onClick={() => handleSend(np.name)}
+                                                    >
+                                                        Explore
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 };
@@ -2177,12 +2228,39 @@ const Chatbot = ({ addToCart }) => {
                             <div className="glass-panel" style={{ padding: '20px', marginBottom: '30px' }}>
                                 <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>🗺️ Nearby Attractions</h4>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                    {detailPage.nearby_attractions.map((place, i) => (
-                                        <span key={i} style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '20px', padding: '6px 14px', fontSize: '13px' }}>
-                                            📍 {typeof place === 'string' ? place : place.name}
-                                            {place.distance && <span style={{ opacity: 0.7 }}> · {place.distance}</span>}
-                                        </span>
-                                    ))}
+                                    {detailPage.nearby_attractions.map((place, i) => {
+                                        const placeName = typeof place === 'string' ? place : place.name;
+                                        return (
+                                            <button 
+                                                key={i} 
+                                                onClick={() => handleSend(placeName)}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = 'rgba(99,102,241,0.25)';
+                                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = 'rgba(99,102,241,0.15)';
+                                                    e.currentTarget.style.transform = 'translateY(0)';
+                                                }}
+                                                style={{ 
+                                                    background: 'rgba(99,102,241,0.15)', 
+                                                    color: '#a5b4fc', 
+                                                    border: '1px solid rgba(99,102,241,0.3)', 
+                                                    borderRadius: '20px', 
+                                                    padding: '6px 14px', 
+                                                    fontSize: '13px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s ease',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px'
+                                                }}
+                                            >
+                                                <span>📍 {placeName}</span>
+                                                {place.distance && <span style={{ opacity: 0.7 }}> · {place.distance}</span>}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
@@ -3301,10 +3379,11 @@ const Chatbot = ({ addToCart }) => {
                     </motion.div>
                 ))}
                 {isSending && (
-                    <div className="message bot typing-indicator-container">
+                    <div className="message bot typing-indicator-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '15px' }}>
                         <div className="typing-indicator">
                             <span></span><span></span><span></span>
                         </div>
+                        <span style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Loading destination images...</span>
                     </div>
                 )}
                 {bookingForm && (
@@ -3476,7 +3555,7 @@ const Chatbot = ({ addToCart }) => {
                 <div ref={messagesEndRef} />
             </div>
             <div style={{ marginBottom: '10px', display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '5px' }}>
-                {['🏕️ Best Camping Spots', '🏖️ Top Beaches', '⛰️ Mountains', '🏛️ Historical Places', '🌿 Wildlife Safaris'].map((chip, i) => (
+                {dynamicChips.map((chip, i) => (
                     <button 
                         key={i}
                         onClick={() => handleSend(chip)}

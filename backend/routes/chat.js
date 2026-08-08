@@ -99,6 +99,16 @@ You must deeply understand the user's intent and extract specific constraints fr
 
 ${memoryContext}
 
+CRITICAL RULES FOR DESTINATIONS:
+1. Exact Destination Focus: If the user asks for a specific place without asking for nearby places (e.g., "Bangalore", "banglore", "tell me about udupi"), you MUST generate the travel card for THAT exact destination. Do NOT recommend nearby places as the main destination.
+2. Local vs Nearby City Intent: If the user explicitly asks for "places near [City]", "tourist attractions in [City]", "best places to visit around [City]", you MUST return local attractions WITHIN or IMMEDIATELY SURROUNDING that city (e.g., for Bangalore: Lalbagh Botanical Garden, Cubbon Park, Bangalore Palace, Nandi Hills, etc.). DO NOT return unrelated destinations from other states (e.g. Kovalam, Goa, Kashmir, Rajasthan) unless explicitly asked.
+3. Spelling Auto-Correction: Understand spelling mistakes automatically (e.g., "banglore" -> "Bangalore", "mysor" -> "Mysore", "udpi" -> "Udupi"). Always output the correctly spelled destination.
+4. No Hallucinations & Geographic Strictness: Only return real tourist places. Search priority must be: Exact Destination -> Local Attractions -> Nearby Cities -> State Attractions. Never return random fallback results.
+5. Contextual Category Clicks: If the user searches for a category (e.g., "🏖 Beaches", "🍽 Seafood", "🏛 Heritage Places"), determine the current destination city from the chat history and return ONLY relevant local places for that category within that specific city. Do NOT return unrelated places (e.g., temples for a beaches query).
+
+DYNAMIC CHIPS:
+Whenever you respond with a destination or recommendation, you MUST generate exactly FIVE destination-specific recommendation chips (e.g., "🏛 Heritage Places", "🌳 Parks & Gardens", "🍽 Famous Food"). Include emojis. These must be highly tailored to the current destination and never generic.
+
 MOOD DETECTION:
 If the user expresses emotions (e.g., bored, stressed, adventurous), suggest mood-appropriate destinations and set action to "MOOD_SUGGESTION".
 
@@ -110,7 +120,7 @@ ${communityPlacesContext}
 Include these in recommendations if relevant. Set action to "HIDDEN_GEMS" if you are specifically recommending these.
 
 COMPANION MODE:
-If the user asks for nearby places (restaurants, hotels, hospitals, ATMs), set action to "NEARBY_PLACES".
+If the user asks for nearby places (restaurants, hotels, hospitals, ATMs) around a location, set action to "NEARBY_PLACES".
 
 SAFETY INFO:
 If the user asks for safety, emergency contacts, or weather warnings, set action to "SAFETY_INFO".
@@ -118,112 +128,50 @@ If the user asks for safety, emergency contacts, or weather warnings, set action
 LANGUAGE:
 Respond in the language specified by code: "${languageContext}" (en=English, hi=Hindi, kn=Kannada).
 
-If the user asks for a standard recommendation or trip plan, generate complete travel recommendation cards.
-Customize the budgets, itineraries, and hotels strictly based on the extracted constraints.
-
-Categories MUST be one of: beach, mountain, historical, cultural, adventure, religious, wildlife.
+IMPORTANT - RELATED PLACES RULE:
+For every destination you generate, you MUST provide exactly 5 real, geographically nearby tourist attractions in the 'nearby_places' array.
+- Use strict geographic proximity (same district/city/state).
+- Never recommend unrelated or random places.
 
 Respond strictly in JSON format ONLY, without markdown backticks. 
-Format MUST exactly match this structure (include travel_cards, itinerary, mood_cards, hidden_gems as arrays when relevant based on the action):
+Format MUST exactly match this structure:
 {
   "reply": "Your conversational reply acknowledging their constraints.",
-  "action": "RECOMMENDATION", // Or MOOD_SUGGESTION, GENERATE_ITINERARY, NEARBY_PLACES, HIDDEN_GEMS, SAFETY_INFO
+  "action": "RECOMMENDATION", 
+  "dynamic_chips": ["🏛 Heritage Places", "🌳 Parks & Gardens", "🍽 Famous Food", "🛍 Shopping", "🌄 Weekend Trips"],
   "extracted_constraints": {
-    "destination": "Goa",
+    "destination": "Bangalore",
     "budget": 15000,
     "days": 5,
-    "interests": ["beach", "party"],
-    "transport": "train",
-    "hotel": "cheap"
-  },
-  "memory_updates": {
-    "favoriteDestinations": ["Goa"],
-    "budgetPreference": "mid-range",
-    "travelStyle": ["beach", "party"],
-    "dietaryPreference": "both",
-    "mood": "happy"
+    "interests": ["historical", "nature"]
   },
   "travel_cards": [
     {
-      "place_name": "Goa",
-      "location": "Goa, India",
-      "category": "beach",
-      "rating": "4.8",
-      "reviews": "12.4k reviews",
-      "description": "Custom description matching their interests.",
-      "image_url": "https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?q=80&w=1000",
-      "image_gallery": [
-        "https://images.unsplash.com/photo-1512343879784-a960bf40e7f2",
-        "https://images.unsplash.com/photo-1542401886-65d6c61db217"
-      ],
-      "map_url": "https://maps.google.com/?q=Goa",
-      "best_time": "Nov - Feb",
-      "entry_fee": "Varies",
-      "tags": ["Beach", "Budget"],
-      "weather": {
-        "temperature": "28°C",
-        "condition": "Sunny"
-      },
-      "budgets": {
-        "5_days": "₹14000"
-      },
-      "travel_tips": ["Carry sunscreen", "Rent a scooter to explore"],
-      "top_attractions": ["Baga Beach", "Dudhsagar Falls", "Fort Aguada"],
-      "estimated_costs": {
-        "low_budget": {
-          "hotel": 1200,
-          "food": 500,
-          "transport": 800,
-          "activities": 200,
-          "taxes": 486,
-          "total": 3186
-        },
-        "high_budget": {
-          "hotel": 8000,
-          "food": 2000,
-          "transport": 3500,
-          "activities": 1500,
-          "taxes": 2700,
-          "total": 17700
-        }
-      },
-      "packing_list": ["Sunscreen", "Swimwear"],
-      "itinerary": [
+      "place_name": "Lalbagh Botanical Garden",
+      "location": "Bangalore, India",
+      "category": "nature",
+      "rating": "4.6",
+      "reviews": "10k+ reviews",
+      "description": "A historic botanical garden with a glasshouse and diverse plant species.",
+      "image_url": "", 
+      "image_gallery": [],
+      "map_url": "https://maps.google.com/?q=Lalbagh+Botanical+Garden+Bangalore",
+      "best_time": "Early Morning / Evening",
+      "entry_fee": "₹30",
+      "distance_from_origin": "5 km from City Center",
+      "travel_time": "15 mins",
+      "tags": ["Nature", "Garden"],
+      "weather": { "temperature": "28°C", "condition": "Sunny" },
+      "nearby_places": [
         {
-          "day": 1,
-          "title": "Arrival",
-          "activities": ["Check-in to budget hotel", "Beach walk"]
+          "name": "Cubbon Park",
+          "distance": "3 km",
+          "description": "The lung space of Bangalore.",
+          "rating": "4.5",
+          "best_time": "Year-round",
+          "image_url": ""
         }
-      ],
-      "hotels": [
-        {
-          "name": "Budget Inn Goa",
-          "type": "budget",
-          "price_per_night": 1200,
-          "food_cost": 400,
-          "room_type": "Standard Double",
-          "amenities": ["Free WiFi", "AC", "Pool"],
-          "nearby_attractions": ["Baga Beach"],
-          "rating": 4.2,
-          "reviews_count": 120,
-          "image_url": "https://images.unsplash.com/photo-1566073771259-6a8506099945?q=80&w=1000"
-        },
-        {
-          "name": "Luxury Beach Resort",
-          "type": "luxury",
-          "price_per_night": 8000,
-          "food_cost": 1500,
-          "room_type": "Ocean View Suite",
-          "amenities": ["Spa", "Private Beach", "Gym", "Breakfast Included"],
-          "nearby_attractions": ["Aguada Fort"],
-          "rating": 4.9,
-          "reviews_count": 850,
-          "image_url": "https://images.unsplash.com/photo-1582719508461-905c673771fd?q=80&w=1000"
-        }
-      ],
-      "foods": ["Street Seafood", "Local Thali"],
-      "nearby_attractions": ["Baga Beach", "Anjuna Flea Market"],
-      "transport_options": ["Overnight Train", "Budget Bus"]
+      ]
     }
   ]
 }`;
@@ -275,11 +223,29 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
                     if (aiResult.travel_cards && Array.isArray(aiResult.travel_cards)) {
                         for (let i = 0; i < aiResult.travel_cards.length; i++) {
                             const card = aiResult.travel_cards[i];
-                            const placeName = card.place_name || 'Destination';
+                            let placeNameForImage = card.place_name || 'Destination';
+                            let cityContext = (aiResult.extracted_constraints && aiResult.extracted_constraints.destination) ? aiResult.extracted_constraints.destination : '';
                             
-                            const realImage = await resolveDestinationImage(placeName);
+                            // If the placeName doesn't already contain the city name, append it for better image matching
+                            if (cityContext && !placeNameForImage.toLowerCase().includes(cityContext.toLowerCase())) {
+                                placeNameForImage = `${placeNameForImage} ${cityContext}`;
+                            }
+                            
+                            const realImage = await resolveDestinationImage(placeNameForImage, topAttractions);
                             card.image_url = realImage.image_url;
                             card.image_gallery = realImage.image_gallery;
+
+                            if (card.nearby_places && Array.isArray(card.nearby_places)) {
+                                for (let j = 0; j < card.nearby_places.length; j++) {
+                                    const np = card.nearby_places[j];
+                                    let npNameForImage = np.name;
+                                    if (cityContext && !npNameForImage.toLowerCase().includes(cityContext.toLowerCase())) {
+                                        npNameForImage = `${npNameForImage} ${cityContext}`;
+                                    }
+                                    const npRealImage = await resolveDestinationImage(npNameForImage, []);
+                                    np.image_url = npRealImage.image_url;
+                                }
+                            }
                         }
                     }
 
@@ -396,39 +362,26 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
             }
         }
 
-        if (intent === 'recommendation' || category) {
-            let query = {};
-            if (category) query.category = category;
-
-            const places = await Destination.find(query);
-            if (places.length === 0) {
-                return res.json({ reply: `I couldn't find any places matching your request.` });
-            }
-
-            let replyText = `Here are some recommendations`;
-            if (category) replyText += ` for ${category} lovers`;
-            replyText += `:\n\n`;
-
-            const placesList = places.map((p, i) => `${i + 1}. ${p.name} (${p.location}) - ₹${p.price.toLocaleString()}\n   ${p.description}`).join('\n\n');
-            const followUp = '\n\nIf you want to book one of these, try saying "Book [place name]".';
-
-            return res.json({ reply: replyText + placesList + followUp, data: places });
-        }
-
-        // SMART FALLBACK: Try fuzzy database search before giving up
+        // SMART FALLBACK: Try database search before giving up
         const words = text.split(/\s+/).filter(w => w.length > 2);
         let fuzzyResults = [];
+        
+        // If category is found, prioritize it in search
+        if (category) {
+            const categoryMatches = await Destination.find({ category: category });
+            fuzzyResults.push(...categoryMatches);
+        }
+
         for (const word of words) {
             const found = await Destination.find({ 
                 $or: [
                     { name: { $regex: word, $options: 'i' } },
-                    { location: { $regex: word, $options: 'i' } },
-                    { description: { $regex: word, $options: 'i' } },
-                    { category: { $regex: word, $options: 'i' } }
+                    { location: { $regex: word, $options: 'i' } }
                 ]
             });
             fuzzyResults.push(...found);
         }
+        
         // Deduplicate by name and pick the BEST entry (with real images)
         const groupedResults = {};
         for (const p of fuzzyResults) {
@@ -473,7 +426,8 @@ Format MUST exactly match this structure (include travel_cards, itinerary, mood_
             // Double check for any bad images in DB and overwrite them with real images
             for (let i = 0; i < travelCards.length; i++) {
                 if (!travelCards[i].image_url || travelCards[i].image_url.includes('placehold.co') || travelCards[i].image_url.includes('loremflickr')) {
-                    const realImage = await resolveDestinationImage(travelCards[i].place_name);
+                    const topAttractions = travelCards[i].top_attractions || travelCards[i].nearby_attractions || [];
+                    const realImage = await resolveDestinationImage(travelCards[i].place_name, topAttractions);
                     travelCards[i].image_url = realImage.image_url;
                     travelCards[i].image_gallery = realImage.image_gallery;
                 }

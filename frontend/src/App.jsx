@@ -185,6 +185,14 @@ function App() {
   const [email, setEmail] = useState(localStorage.getItem('email'));
 
   useEffect(() => {
+    // Initialize theme
+    const savedTheme = localStorage.getItem('appTheme') || 'light';
+    if (savedTheme === 'light') {
+      document.documentElement.classList.add('light-mode');
+    } else {
+      document.documentElement.classList.remove('light-mode');
+    }
+
     const handleAuthChange = () => {
       setToken(localStorage.getItem('token'));
       setRole(localStorage.getItem('role'));

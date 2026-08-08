@@ -24,7 +24,7 @@ const TravelerDashboard = () => {
     const [placeForm, setPlaceForm] = useState({ placeName: '', category: 'hidden-gem', description: '', location: '' });
     
     // Theme State
-    const [theme, setTheme] = useState(localStorage.getItem('appTheme') || 'dark');
+    const [theme, setTheme] = useState(localStorage.getItem('appTheme') || 'light');
     
     const navigate = useNavigate();
 

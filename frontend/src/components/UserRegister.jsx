@@ -13,100 +13,19 @@ const UserRegister = () => {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [socialLoading, setSocialLoading] = useState('');
     
     // OTP State
     const [step, setStep] = useState('register');
     const [userId, setUserId] = useState(null);
     const [otp, setOtp] = useState('');
 
-    const googleScriptRef = useRef(null);
     const navigate = useNavigate();
-
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
     useEffect(() => {
         // If already logged in, redirect to chatbot
         const token = localStorage.getItem('token');
         if (token) navigate('/');
     }, [navigate]);
-
-    const handleGoogleResponse = useCallback(async (response) => {
-        setSocialLoading('google');
-        setError('');
-        try {
-            const base64Url = response.credential.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-            }).join(''));
-            const decoded = JSON.parse(jsonPayload);
-
-            const res = await axios.post('/api/auth/social', {
-                provider: 'google',
-                token: response.credential,
-                email: decoded.email,
-                name: decoded.name,
-                providerId: decoded.sub,
-                profilePicture: decoded.picture
-            });
-
-            localStorage.setItem('token', res.data.token);
-            localStorage.setItem('role', res.data.role || 'user');
-            localStorage.setItem('username', res.data.username);
-            if (res.data.profilePicture) {
-                localStorage.setItem('profilePicture', res.data.profilePicture);
-            }
-            if (res.data.name) {
-                localStorage.setItem('name', res.data.name);
-            }
-            if (res.data.email) {
-                localStorage.setItem('email', res.data.email);
-            }
-            localStorage.removeItem('chatHistory_guest');
-            window.dispatchEvent(new Event('authChange'));
-            navigate('/');
-        } catch (err) {
-            setError(getAuthErrorMessage(err, 'Google registration failed'));
-        } finally {
-            setSocialLoading('');
-        }
-    }, [navigate]);
-
-    // Load Google Identity Services script
-    useEffect(() => {
-        if (!googleClientId) return undefined;
-
-        const script = document.createElement('script');
-        script.src = 'https://accounts.google.com/gsi/client';
-        script.async = true;
-        script.defer = true;
-        googleScriptRef.current = script;
-        document.head.appendChild(script);
-
-        script.onload = () => {
-            const btnHost = document.getElementById('google-signin-btn');
-            if (!window.google?.accounts?.id || !btnHost) return;
-            window.google.accounts.id.initialize({
-                client_id: googleClientId,
-                callback: handleGoogleResponse,
-            });
-            window.google.accounts.id.renderButton(btnHost, {
-                theme: 'filled_black',
-                size: 'large',
-                width: Math.min(320, window.innerWidth - 80),
-                text: 'continue_with',
-                shape: 'pill',
-                logo_alignment: 'left',
-            });
-        };
-
-        return () => {
-            if (googleScriptRef.current?.parentNode) {
-                googleScriptRef.current.parentNode.removeChild(googleScriptRef.current);
-            }
-        };
-    }, [googleClientId, handleGoogleResponse]);
 
     const handleRegister = async (e) => {
         e.preventDefault();
@@ -669,16 +588,6 @@ const UserRegister = () => {
                             </form>
                         </>
                     )}
-
-                    {/* Divider */}
-                    <div className="divider">
-                        <div className="divider-line"></div>
-                        <span className="divider-text">or continue with</span>
-                        <div className="divider-line"></div>
-                    </div>
-
-                    {/* Google Sign-In */}
-                    <div id="google-signin-btn" style={{ display: 'flex', justifyContent: 'center', minHeight: '44px' }}></div>
 
                     <div className="user-footer">
                         Already have an account? <Link to="/login">Sign in</Link>

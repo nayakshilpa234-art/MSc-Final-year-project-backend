@@ -112,7 +112,7 @@ router.patch('/users/:id/role', async (req, res) => {
 // ─────────────────────────────────────────────
 router.get('/bookings', async (req, res) => {
     try {
-        const bookings = await Booking.find().sort({ createdAt: -1 }).limit(100);
+        const bookings = await Booking.find().populate('destination').sort({ createdAt: -1 }).limit(100);
         res.json(bookings);
     } catch (err) {
         res.status(500).json({ msg: 'Failed to fetch bookings' });
