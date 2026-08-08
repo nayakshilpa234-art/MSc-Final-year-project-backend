@@ -38,6 +38,10 @@ app.use(cors({
 app.use(express.static('public'));
 app.use(bodyParser.json({ limit: '10mb' }));
 
+app.get('/', (req, res) => {
+  res.send('MSc Final Year Project Backend is running!');
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     await connectDB();
